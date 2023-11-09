@@ -60,12 +60,12 @@ This produces the following documents under the `./rewards` directory:
 
 ```bash
 📂 rewards
-├── 📄 by-owner.csv            # Monthly reward for each owner address
+├── 📄 by-owner.csv            # Monthly reward for each owner
 ├── 📄 by-validator.csv        # Monthly reward for each validator
-├── 📄 total-by-owner.csv      # Total reward for each owner address
+├── 📄 total-by-owner.csv      # Total reward for each owner
 ├── 📄 total-by-validator.csv  # Total reward for each validator
 └── 📂 <year>-<month>
-    ├── 📄 by-owner.csv        # Total reward for each owner address for the month
-    ├── 📄 by-validator.csv    # Total reward for each validator for the month
-    └── 📄 merkle-tree.json    # Merkle tree for the month
+    ├── 📄 by-owner.csv        # Total reward for each owner for this month
+    ├── 📄 by-validator.csv    # Total reward for each validator for this month
+    └── 📄 cumulative.json     # Cumulative reward for each owner until and including this month
 ```
