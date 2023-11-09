@@ -69,3 +69,7 @@ This produces the following documents under the `./rewards` directory:
     ├── 📄 by-validator.csv    # Total reward for each validator for this month
     └── 📄 cumulative.json     # Cumulative reward for each owner until and including this month
 ```
+
+### Merkleization
+
+TODO: After calculating the distribution, you may merkleize the rewards for each month.
