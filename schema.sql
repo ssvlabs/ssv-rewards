@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS state (
 	lowest_block_number INTEGER NOT NULL,
 	highest_block_number INTEGER NOT NULL,
 	ealiest_validator_performance DATE,
-	latest_validator_performance DATE,
+	latest_validator_performance DATE
 );
 
 CREATE TABLE IF NOT EXISTS contract_events (

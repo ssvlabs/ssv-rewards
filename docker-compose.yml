@@ -20,7 +20,7 @@ services:
     build: .
     command: sync
     environment:
-      POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@postgres/${POSTGRES_PASSWORD:-ssv-rewards}?sslmode=disable
+      POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@postgres/${POSTGRES_DB:-ssv-rewards}?sslmode=disable
       NETWORK: ${NETWORK:-mainnet}
       CONSENSUS_ENDPOINT: ${CONSENSUS_ENDPOINT}
       EXECUTION_ENDPOINT: ${EXECUTION_ENDPOINT}
@@ -38,4 +38,6 @@ services:
     build: .
     command: calc
     environment:
-      POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@postgres/${POSTGRES_PASSWORD:-ssv-rewards}?sslmode=disable
+      POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@postgres/${POSTGRES_DB:-ssv-rewards}?sslmode=disable
+    volumes:
+      - ./:/app
