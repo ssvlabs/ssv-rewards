@@ -60,12 +60,12 @@ This calculates the reward distribution for the period from June 2023 to October
 
 ```bash
 📂 rewards
-├── 📄 by-owner.csv            # Daily rewards for each owner address
-├── 📄 by-validator.csv        # Daily rewards for each validator
+├── 📄 by-owner.csv            # Monthly reward for each owner address
+├── 📄 by-validator.csv        # Monthly reward for each validator
 ├── 📄 total-by-owner.csv      # Total reward for each owner address
 ├── 📄 total-by-validator.csv  # Total reward for each validator
 └── 📂 <year>-<month>
-    ├── 📄 by-owner.csv        # Daily rewards for each owner address for the month
-    ├── 📄 by-validator.csv    # Daily rewards for each validator for the month
+    ├── 📄 by-owner.csv        # Total reward for each owner address for the month
+    ├── 📄 by-validator.csv    # Total reward for each validator for the month
     └── 📄 merkle-tree.json    # Merkle tree for the month
 ```
