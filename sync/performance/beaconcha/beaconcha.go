@@ -1,0 +1,153 @@
+package beaconcha
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/bloxapp/ssv-rewards/beacon"
+	"github.com/bloxapp/ssv-rewards/sync/performance"
+	"github.com/carlmjohnson/requests"
+	"golang.org/x/time/rate"
+)
+
+const (
+	ProviderType performance.ProviderType = "beaconcha"
+)
+
+type dailyData struct {
+	Day                   int       `json:"day"`
+	AttesterSlashings     int       `json:"attester_slashings"`
+	DayEnd                time.Time `json:"day_end"`
+	DayStart              time.Time `json:"day_start"`
+	Deposits              uint64    `json:"deposits"`
+	DepositsAmount        uint64    `json:"deposits_amount"`
+	EndBalance            uint64    `json:"end_balance"`
+	EndEffectiveBalance   uint64    `json:"end_effective_balance"`
+	MaxBalance            uint64    `json:"max_balance"`
+	MaxEffectiveBalance   uint64    `json:"max_effective_balance"`
+	MinBalance            uint64    `json:"min_balance"`
+	MinEffectiveBalance   uint64    `json:"min_effective_balance"`
+	MissedAttestations    int       `json:"missed_attestations"`
+	MissedBlocks          int       `json:"missed_blocks"`
+	MissedSync            int       `json:"missed_sync"`
+	OrphanedAttestations  int       `json:"orphaned_attestations"`
+	OrphanedBlocks        int       `json:"orphaned_blocks"`
+	OrphanedSync          int       `json:"orphaned_sync"`
+	ParticipatedSync      int       `json:"participated_sync"`
+	ProposedBlocks        int       `json:"proposed_blocks"`
+	ProposerSlashings     int       `json:"proposer_slashings"`
+	StartBalance          uint64    `json:"start_balance"`
+	StartEffectiveBalance uint64    `json:"start_effective_balance"`
+	ValidatorIndex        int       `json:"validatorindex"`
+	Withdrawals           uint64    `json:"withdrawals"`
+	WithdrawalsAmount     uint64    `json:"withdrawals_amount"`
+}
+
+type response struct {
+	Status string      `json:"status"`
+	Data   []dailyData `json:"data"`
+}
+
+type Client struct {
+	endpoint    string
+	apiKey      string
+	rateLimiter *rate.Limiter
+	cache       map[phase0.ValidatorIndex][]dailyData
+}
+
+func New(endpoint string, apiKey string, requestsPerMinute float64) *Client {
+	return &Client{
+		endpoint: endpoint,
+		apiKey:   apiKey,
+		rateLimiter: rate.NewLimiter(
+			rate.Every(time.Minute/time.Duration(requestsPerMinute)),
+			1,
+		),
+		cache: make(map[phase0.ValidatorIndex][]dailyData),
+	}
+}
+
+func (m *Client) Type() performance.ProviderType {
+	return ProviderType
+}
+
+func (m *Client) ValidatorPerformance(
+	ctx context.Context,
+	spec beacon.Spec,
+	day time.Time,
+	fromEpoch, toEpoch, activationEpoch, exitEpoch phase0.Epoch,
+	index phase0.ValidatorIndex,
+) (*performance.ValidatorPerformance, error) {
+	data, ok := m.cache[index]
+	if !ok {
+		// Fetch from the Beaconcha API.
+		if err := m.rateLimiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("failed to wait for rate limiter: %w", err)
+		}
+
+		var resp response
+		err := requests.URL(m.endpoint).
+			Pathf("/api/v1/validator/stats/%d", index).
+			Param("apikey", m.apiKey).
+			ToJSON(&resp).
+			Fetch(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch validator performance: %w", err)
+		}
+		if resp.Status != "OK" {
+			return nil, fmt.Errorf("failed to fetch validator performance: %s", resp.Status)
+		}
+		data = resp.Data
+
+		// Cache the data.
+		m.cache[index] = data
+	}
+	for _, d := range data {
+		if d.DayStart.UTC().Truncate(24*time.Hour) != day.UTC().Truncate(24*time.Hour) {
+			continue
+		}
+
+		activeEpochs := toEpoch - fromEpoch + 1
+		if activationEpoch > fromEpoch {
+			if activationEpoch > toEpoch {
+				activeEpochs = 0
+			} else {
+				activeEpochs -= activationEpoch - fromEpoch
+			}
+		}
+		if exitEpoch != spec.FarFutureEpoch && exitEpoch < toEpoch {
+			if exitEpoch < fromEpoch {
+				activeEpochs = 0
+			} else {
+				activeEpochs -= toEpoch - exitEpoch
+			}
+		}
+
+		performance := &performance.ValidatorPerformance{
+			Attestations: performance.DutyStat{
+				Assigned: int16(activeEpochs),
+				Executed: int16(activeEpochs) - int16(d.MissedAttestations),
+				Missed:   int16(d.MissedAttestations),
+			},
+			Proposals: performance.DutyStat{
+				Assigned: int16(d.ProposedBlocks + d.MissedBlocks),
+				Executed: int16(d.ProposedBlocks),
+				Missed:   int16(d.MissedBlocks),
+			},
+			SyncCommittee: performance.DutyStat{
+				Assigned: int16(d.ParticipatedSync + d.MissedSync),
+				Executed: int16(d.ParticipatedSync),
+				Missed:   int16(d.MissedSync),
+			},
+		}
+		performance.AttestationRate = float32(
+			performance.Attestations.Executed,
+		) / float32(
+			performance.Attestations.Assigned,
+		)
+		return performance, nil
+	}
+	return nil, nil
+}

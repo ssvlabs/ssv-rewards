@@ -1,0 +1,14 @@
+output   = "models"
+wipe     = true
+no-tests = true
+add-enum-types = true
+
+[psql]
+  dbname = "ssv-rewards"
+  host   = "localhost"
+  port   = 5432
+  user   = "user"
+  pass   = "1234"
+  schema = "public"
+  blacklist = ["migrations", "other"]
+  sslmode = "disable"
