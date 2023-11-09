@@ -50,13 +50,13 @@ _This might take a while, depending on how long ago the SSV contract was deploye
 
 ### Calculation
 
-After syncing, you may calculate rewards for a given period:
+After syncing, you may calculate the reward distribution for a given period:
 
 ```bash
 docker-compose run --rm calc --from 2023-06 --to 2023-10
 ```
 
-This calculates the reward distribution for the period from June 2023 to October 2023 (inclusive) and produces the following documents under the `./rewards` directory:
+This produces the following documents under the `./rewards` directory:
 
 ```bash
 📂 rewards
