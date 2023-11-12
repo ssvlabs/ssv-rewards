@@ -305,8 +305,8 @@ type Exclusion struct {
 	FromEpoch         phase0.Epoch
 	ToEpoch           phase0.Epoch
 	PublicKey         string
-	StartBeaconStatus sql.NullString
-	EndBeaconStatus   sql.NullString
+	StartBeaconStatus string
+	EndBeaconStatus   string
 	Events            string
 	ExclusionReason   string
 }
@@ -316,11 +316,37 @@ func (c *CalcCmd) exclusions(
 	fromPeriod rewards.Period,
 	toPeriod rewards.Period,
 ) ([]*Exclusion, error) {
-	var exclusions []*Exclusion
-	return exclusions, queries.Raw(
+	var rows []struct {
+		Day               time.Time
+		FromEpoch         phase0.Epoch
+		ToEpoch           phase0.Epoch
+		PublicKey         string
+		StartBeaconStatus sql.NullString
+		EndBeaconStatus   sql.NullString
+		Events            string
+		ExclusionReason   string
+	}
+	err := queries.Raw(
 		"SELECT * FROM inactive_days_by_validator($1, $2, $3, $4, $5)",
 		c.PerformanceProvider, c.plan.Criteria.MinAttestationsPerDay, c.plan.Criteria.MinDecidedsPerDay, time.Time(fromPeriod), time.Time(toPeriod),
-	).Bind(ctx, c.db, &exclusions)
+	).Bind(ctx, c.db, &rows)
+	if err != nil {
+		return nil, err
+	}
+	exclusions := make([]*Exclusion, len(rows))
+	for i, row := range rows {
+		exclusions[i] = &Exclusion{
+			Day:               row.Day,
+			FromEpoch:         row.FromEpoch,
+			ToEpoch:           row.ToEpoch,
+			PublicKey:         row.PublicKey,
+			StartBeaconStatus: row.StartBeaconStatus.String,
+			EndBeaconStatus:   row.EndBeaconStatus.String,
+			Events:            row.Events,
+			ExclusionReason:   row.ExclusionReason,
+		}
+	}
+	return exclusions, nil
 }
 
 func exportCSV(data any, fileName string) error {
