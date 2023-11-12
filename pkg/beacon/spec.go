@@ -7,6 +7,7 @@ import (
 )
 
 type Spec struct {
+	Network        string
 	GenesisTime    time.Time
 	SlotsPerEpoch  phase0.Slot
 	SlotDuration   time.Duration

@@ -24,13 +24,14 @@ import (
 
 type CalcCmd struct {
 	Dir                 string `default:"./rewards" help:"Path to save the rewards to,"`
-	PerformanceProvider string `default:"beaconcha" help:"Performance provider to use."                                       enum:"beaconcha,e2m"`
+	PerformanceProvider string `default:"beaconcha" help:"Performance provider to use." enum:"beaconcha,e2m"`
 
 	plan *rewards.Plan
 	db   *sql.DB
 }
 
-func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
+func (c *CalcCmd) Run(logger *zap.Logger, db *sql.DB, plan *rewards.Plan) error {
+	c.db = db
 	ctx := context.Background()
 
 	// Parse the rewards plan.
@@ -43,13 +44,41 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 		return fmt.Errorf("failed to parse rewards plan: %w", err)
 	}
 
-	// Connect to the PostgreSQL database.
-	c.db, err = sql.Open("postgres", globals.Postgres)
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+	// Delete the existing rewards directory.
+	switch _, err := os.Stat(c.Dir); {
+	case os.IsNotExist(err):
+	case err != nil:
+		return fmt.Errorf("failed to stat %q: %w", c.Dir, err)
+	default:
+		if err := os.RemoveAll(c.Dir); err != nil {
+			return fmt.Errorf("failed to remove %q: %w", c.Dir, err)
+		}
 	}
-	logger.Info("Connected to PostgreSQL")
 
+	// Create a temporary directory for the rewards.
+	if err := os.Mkdir(".tmp", 0755); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("failed to create temporary directory: %w", err)
+	}
+	tmpDir, err := os.MkdirTemp(".tmp", "rewards")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary directory: %w", err)
+	}
+	defer os.RemoveAll(".tmp")
+
+	// Calculate rewards.
+	if err := c.run(ctx, logger, tmpDir); err != nil {
+		return fmt.Errorf("failed to calculate rewards: %w", err)
+	}
+
+	// Move the temporary directory to the rewards directory.
+	if err := os.Rename(tmpDir, c.Dir); err != nil {
+		return fmt.Errorf("failed to move temporary directory: %w", err)
+	}
+
+	return nil
+}
+
+func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error {
 	// Verify that validator performance data is available.
 	state, err := models.States().One(ctx, c.db)
 	if err != nil {
@@ -59,7 +88,9 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 		return fmt.Errorf("validator performance data is not available")
 	}
 	if state.EarliestValidatorPerformance.Time.After(state.LatestValidatorPerformance.Time) {
-		return fmt.Errorf("invalid state: earliest validator performance is after latest validator performance")
+		return fmt.Errorf(
+			"invalid state: earliest validator performance is after latest validator performance",
+		)
 	}
 	if state.EarliestValidatorPerformance.Time.After(c.plan.Rounds[0].Period.FirstDay()) {
 		return fmt.Errorf("validator performance data is not available for the first round")
@@ -102,7 +133,10 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 		if err != nil {
 			return fmt.Errorf("failed to get tier: %w", err)
 		}
-		dailyReward, monthlyReward, annualReward, err := c.plan.ValidatorRewards(round.Period, len(validatorParticipations))
+		dailyReward, monthlyReward, annualReward, err := c.plan.ValidatorRewards(
+			round.Period,
+			len(validatorParticipations),
+		)
 		if err != nil {
 			return fmt.Errorf("failed to get reward: %w", err)
 		}
@@ -131,7 +165,10 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 			participation.Reward = dailyReward * float64(participation.ActiveDays)
 
 			if participation.ActiveDays != ownerActiveDays[participation.OwnerAddress] {
-				return fmt.Errorf("inconsistent active days for owner %q", participation.OwnerAddress)
+				return fmt.Errorf(
+					"inconsistent active days for owner %q",
+					participation.OwnerAddress,
+				)
 			}
 
 			byOwner = append(byOwner, &OwnerParticipationRound{
@@ -160,8 +197,8 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 		}
 
 		// Export rewards.
-		dir := filepath.Join(c.Dir, round.Period.String())
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		dir := filepath.Join(dir, round.Period.String())
+		if err := os.Mkdir(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %q: %w", dir, err)
 		}
 		if err := exportCSV(validatorParticipations, filepath.Join(dir, "by-validator.csv")); err != nil {
@@ -205,31 +242,35 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 	}
 
 	// Export total rewards.
-	if err := exportCSV(byValidator, filepath.Join(c.Dir, "by-validator.csv")); err != nil {
+	if err := exportCSV(byValidator, filepath.Join(dir, "by-validator.csv")); err != nil {
 		return fmt.Errorf("failed to export total validator rewards: %w", err)
 	}
-	if err := exportCSV(byOwner, filepath.Join(c.Dir, "by-owner.csv")); err != nil {
+	if err := exportCSV(byOwner, filepath.Join(dir, "by-owner.csv")); err != nil {
 		return fmt.Errorf("failed to export total owner rewards: %w", err)
 	}
-	if err := exportCSV(byRecipient, filepath.Join(c.Dir, "by-recipient.csv")); err != nil {
+	if err := exportCSV(byRecipient, filepath.Join(dir, "by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
 	}
-	if err := exportCSV(maps.Values(totalByValidator), filepath.Join(c.Dir, "total-by-validator.csv")); err != nil {
+	if err := exportCSV(maps.Values(totalByValidator), filepath.Join(dir, "total-by-validator.csv")); err != nil {
 		return fmt.Errorf("failed to export total validator rewards: %w", err)
 	}
-	if err := exportCSV(maps.Values(totalByOwner), filepath.Join(c.Dir, "total-by-owner.csv")); err != nil {
+	if err := exportCSV(maps.Values(totalByOwner), filepath.Join(dir, "total-by-owner.csv")); err != nil {
 		return fmt.Errorf("failed to export total owner rewards: %w", err)
 	}
-	if err := exportCSV(maps.Values(totalByRecipient), filepath.Join(c.Dir, "total-by-recipient.csv")); err != nil {
+	if err := exportCSV(maps.Values(totalByRecipient), filepath.Join(dir, "total-by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
 	}
 
 	// Export exclusions.
-	exclusions, err := c.exclusions(ctx, completeRounds[0].Period, completeRounds[len(completeRounds)-1].Period)
+	exclusions, err := c.exclusions(
+		ctx,
+		completeRounds[0].Period,
+		completeRounds[len(completeRounds)-1].Period,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to get exclusions: %w", err)
 	}
-	if err := exportCSV(exclusions, filepath.Join(c.Dir, "exclusions.csv")); err != nil {
+	if err := exportCSV(exclusions, filepath.Join(dir, "exclusions.csv")); err != nil {
 		return fmt.Errorf("failed to export exclusions: %w", err)
 	}
 
@@ -255,7 +296,10 @@ func (c *CalcCmd) validatorParticipations(
 	var rewards []*ValidatorParticipation
 	return rewards, queries.Raw(
 		"SELECT * FROM active_days_by_validator($1, $2, $3, $4)",
-		c.PerformanceProvider, c.plan.Criteria.MinAttestationsPerDay, c.plan.Criteria.MinDecidedsPerDay, time.Time(period),
+		c.PerformanceProvider,
+		c.plan.Criteria.MinAttestationsPerDay,
+		c.plan.Criteria.MinDecidedsPerDay,
+		time.Time(period),
 	).Bind(ctx, c.db, &rewards)
 }
 
@@ -278,7 +322,10 @@ func (c *CalcCmd) ownerParticipations(
 	var rewards []*OwnerParticipation
 	return rewards, queries.Raw(
 		"SELECT * FROM active_days_by_owner($1, $2, $3, $4)",
-		c.PerformanceProvider, c.plan.Criteria.MinAttestationsPerDay, c.plan.Criteria.MinDecidedsPerDay, time.Time(period),
+		c.PerformanceProvider,
+		c.plan.Criteria.MinAttestationsPerDay,
+		c.plan.Criteria.MinDecidedsPerDay,
+		time.Time(period),
 	).Bind(ctx, c.db, &rewards)
 }
 
@@ -296,7 +343,10 @@ func (c *CalcCmd) recipientParticipations(
 	var rewards []*RecipientParticipation
 	return rewards, queries.Raw(
 		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4)",
-		c.PerformanceProvider, c.plan.Criteria.MinAttestationsPerDay, c.plan.Criteria.MinDecidedsPerDay, time.Time(period),
+		c.PerformanceProvider,
+		c.plan.Criteria.MinAttestationsPerDay,
+		c.plan.Criteria.MinDecidedsPerDay,
+		time.Time(period),
 	).Bind(ctx, c.db, &rewards)
 }
 
@@ -323,12 +373,16 @@ func (c *CalcCmd) exclusions(
 		PublicKey         string
 		StartBeaconStatus sql.NullString
 		EndBeaconStatus   sql.NullString
-		Events            string
+		Events            sql.NullString
 		ExclusionReason   string
 	}
 	err := queries.Raw(
 		"SELECT * FROM inactive_days_by_validator($1, $2, $3, $4, $5)",
-		c.PerformanceProvider, c.plan.Criteria.MinAttestationsPerDay, c.plan.Criteria.MinDecidedsPerDay, time.Time(fromPeriod), time.Time(toPeriod),
+		c.PerformanceProvider,
+		c.plan.Criteria.MinAttestationsPerDay,
+		c.plan.Criteria.MinDecidedsPerDay,
+		time.Time(fromPeriod),
+		time.Time(toPeriod),
 	).Bind(ctx, c.db, &rows)
 	if err != nil {
 		return nil, err
@@ -342,7 +396,7 @@ func (c *CalcCmd) exclusions(
 			PublicKey:         row.PublicKey,
 			StartBeaconStatus: row.StartBeaconStatus.String,
 			EndBeaconStatus:   row.EndBeaconStatus.String,
-			Events:            row.Events,
+			Events:            row.Events.String,
 			ExclusionReason:   row.ExclusionReason,
 		}
 	}

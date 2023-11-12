@@ -71,7 +71,10 @@ func (r *Plan) validate() error {
 	return nil
 }
 
-func (r *Plan) ValidatorRewards(period Period, participants int) (daily, monthly, annual float64, err error) {
+func (r *Plan) ValidatorRewards(
+	period Period,
+	participants int,
+) (daily, monthly, annual float64, err error) {
 	tier, err := r.Tier(participants)
 	if err != nil {
 		err = fmt.Errorf("failed to determine tier: %w", err)

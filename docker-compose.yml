@@ -20,8 +20,8 @@ services:
     build: .
     command: sync
     environment:
-      POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@postgres/${POSTGRES_DB:-ssv-rewards}?sslmode=disable
       NETWORK: ${NETWORK:-mainnet}
+      POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@postgres/${POSTGRES_DB:-ssv-rewards}?sslmode=disable
       CONSENSUS_ENDPOINT: ${CONSENSUS_ENDPOINT}
       EXECUTION_ENDPOINT: ${EXECUTION_ENDPOINT}
       E2M_ENDPOINT: ${E2M_ENDPOINT}

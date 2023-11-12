@@ -208,7 +208,7 @@ func SyncValidatorPerformance(
 				}
 			}
 			err := requests.URL(ssvAPIEndpoint).
-				Pathf("/api/v4/mainnet/validators/duty_counts/%d/%d", fromEpoch, toEpoch).
+				Pathf("/api/v4/%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
 				ToJSON(&resp).
 				Fetch(ctx)
 			if err != nil {
@@ -249,7 +249,11 @@ func SyncValidatorPerformance(
 						ExitEpoch:         phase0.Epoch(validator.BeaconExitEpoch.Int),
 						WithdrawableEpoch: phase0.Epoch(validator.BeaconWithdrawableEpoch.Int),
 					}
-					startState := v1.ValidatorToState(phase0Validator, fromEpoch, spec.FarFutureEpoch)
+					startState := v1.ValidatorToState(
+						phase0Validator,
+						fromEpoch,
+						spec.FarFutureEpoch,
+					)
 					endState := v1.ValidatorToState(phase0Validator, toEpoch, spec.FarFutureEpoch)
 					performance.StartBeaconStatus = null.StringFrom(startState.String())
 					performance.EndBeaconStatus = null.StringFrom(endState.String())
@@ -273,11 +277,19 @@ func SyncValidatorPerformance(
 						performance.ProposalsAssigned = null.Int16From(data.Proposals.Assigned)
 						performance.ProposalsExecuted = null.Int16From(data.Proposals.Executed)
 						performance.ProposalsMissed = null.Int16From(data.Proposals.Missed)
-						performance.AttestationsAssigned = null.Int16From(data.Attestations.Assigned)
-						performance.AttestationsExecuted = null.Int16From(data.Attestations.Executed)
+						performance.AttestationsAssigned = null.Int16From(
+							data.Attestations.Assigned,
+						)
+						performance.AttestationsExecuted = null.Int16From(
+							data.Attestations.Executed,
+						)
 						performance.AttestationsMissed = null.Int16From(data.Attestations.Missed)
-						performance.SyncCommitteeAssigned = null.Int16From(data.SyncCommittee.Assigned)
-						performance.SyncCommitteeExecuted = null.Int16From(data.SyncCommittee.Executed)
+						performance.SyncCommitteeAssigned = null.Int16From(
+							data.SyncCommittee.Assigned,
+						)
+						performance.SyncCommitteeExecuted = null.Int16From(
+							data.SyncCommittee.Executed,
+						)
 						performance.SyncCommitteeMissed = null.Int16From(data.SyncCommittee.Missed)
 					} else {
 						if startState.IsAttesting() || endState.IsAttesting() {

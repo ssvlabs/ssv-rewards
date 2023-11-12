@@ -88,11 +88,13 @@ This produces the following documents under the `./rewards` directory:
 📂 rewards
 ├── 📄 by-owner.csv            # Reward per round for each owner
 ├── 📄 by-validator.csv        # Reward per round for each validator
+├── 📄 by-recipient.csv        # Reward per round for each recipient
 ├── 📄 total-by-owner.csv      # Total reward for each owner
 ├── 📄 total-by-validator.csv  # Total reward for each validator
 └── 📂 <year>-<month>
     ├── 📄 by-owner.csv        # Total reward for each owner for this month
     ├── 📄 by-validator.csv    # Total reward for each validator for this month
+    ├── 📄 by-recipient.csv    # Total reward for each recipient for this month
     └── 📄 cumulative.json     # Cumulative reward for each owner until and including this month
 ```
 

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/alecthomas/kong"
+	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/joho/godotenv"
 	"github.com/mattn/go-colorable"
 	"go.uber.org/zap"
@@ -53,7 +55,24 @@ func main() {
 		logLevel,
 	))
 
+	// Parse the rewards plan.
+	data, err := os.ReadFile("rewards.yaml")
+	if err != nil {
+		logger.Fatal("failed to read rewards.yaml", zap.Error(err))
+	}
+	plan, err := rewards.ParseYAML(data)
+	if err != nil {
+		logger.Fatal("failed to parse rewards plan", zap.Error(err))
+	}
+
+	// Connect to the PostgreSQL database.
+	db, err := sql.Open("postgres", cli.Globals.Postgres)
+	if err != nil {
+		logger.Fatal("failed to connect to PostgreSQL", zap.Error(err))
+	}
+	logger.Info("Connected to PostgreSQL")
+
 	// Run the CLI.
-	err = ctx.Run(logger, &cli.Globals)
+	err = ctx.Run(logger, db, plan)
 	ctx.FatalIfErrorf(err)
 }

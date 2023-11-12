@@ -37,46 +37,29 @@ import (
 )
 
 type SyncCmd struct {
+	Network                    string `env:"NETWORK"                       default:"mainnet"              help:"SSV network name."`
 	DataDir                    string `env:"DATA_DIR"                      default:"./data"               help:"Path to the data directory."`
 	ExecutionEndpoint          string `env:"EXECUTION_ENDPOINT"                                           help:"RPC endpoint to an Ethereum execution node."                                        required:""`
 	ConsensusEndpoint          string `env:"CONSENSUS_ENDPOINT"                                           help:"HTTP endpoint to an Ethereum Beacon node API."                                      required:""`
-	SSVAPIEndpoint             string `env:"SSV_API_ENDPOINT"                                             help:"HTTP endpoint to an SSV API."                                                        required:""`
+	SSVAPIEndpoint             string `env:"SSV_API_ENDPOINT"                                             help:"HTTP endpoint to an SSV API."                                                       required:""`
 	E2MEndpoint                string `env:"E2M_ENDPOINT"                                                 help:"HTTP endpoint to an ethereum2-monitor API."                                         required:"" xor:"monitoring-endpoint" name:"e2m-endpoint"`
 	BeaconchaEndpoint          string `env:"BEACONCHA_ENDPOINT"            default:"https://beaconcha.in" help:"HTTP endpoint to a beaconcha.in API."                                               required:"" xor:"monitoring-endpoint"`
 	BeaconchaAPIKey            string `env:"BEACONCHA_API_KEY"                                            help:"API key for beaconcha.in API."                                                      required:""`
 	BeaconchaRequestsPerMinute int    `env:"BEACONCHA_REQUESTS_PER_MINUTE" default:"20"                   help:"Maximum number of requests per minute to beaconcha.in API."                         required:""`
-	Network                    string `env:"NETWORK"                       default:"mainnet"              help:"SSV network name."`
 	HighestExecutionBlock      uint64 `env:"HIGHEST_EXECUTION_BLOCK"                                      help:"Execution block number to end syncing at. Defaults to the highest finalized block."`
 	Fresh                      bool   `env:"FRESH"                                                        help:"Delete all data and start from scratch."`
 	FreshSSV                   bool   `env:"FRESH_SSV"                                                    help:"Delete all SSV data and start from scratch."`
 }
 
-func (c *SyncCmd) Run(logger *zap.Logger, globals *Globals) error {
+func (c *SyncCmd) Run(logger *zap.Logger, db *sql.DB, plan *rewards.Plan) error {
 	ctx := context.Background()
-
-	// Parse the rewards plan.
-	data, err := os.ReadFile("rewards.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to read rewards.yaml: %w", err)
-	}
-	plan, err := rewards.ParseYAML(data)
-	if err != nil {
-		return fmt.Errorf("failed to parse rewards plan: %w", err)
-	}
 
 	// Get the SSV NetworkConfig.
 	network, err := networkconfig.GetNetworkConfigByName(c.Network)
 	if err != nil {
-		return fmt.Errorf("failed to get network config: %w", err)
+		logger.Fatal("failed to get network config", zap.Error(err))
 	}
 	logger.Info("Starting ssv-rewards", zap.String("network", network.Name))
-
-	// Connect to the PostgreSQL database.
-	db, err := sql.Open("postgres", globals.Postgres)
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-	logger.Info("Connected to PostgreSQL")
 
 	// Start from scratch, if requested.
 	if c.Fresh {
@@ -169,6 +152,7 @@ func (c *SyncCmd) Run(logger *zap.Logger, globals *Globals) error {
 		return fmt.Errorf("failed to get genesis time: %w", err)
 	}
 	spec := beacon.Spec{
+		Network:        network.Beacon.GetNetwork().String(),
 		GenesisTime:    genesisTime,
 		SlotsPerEpoch:  32,
 		SlotDuration:   12 * time.Second,
