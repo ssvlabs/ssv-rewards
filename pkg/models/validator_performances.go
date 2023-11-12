@@ -34,6 +34,7 @@ type ValidatorPerformance struct {
 	Index                 null.Int     `boil:"index" json:"index,omitempty" toml:"index" yaml:"index,omitempty"`
 	StartBeaconStatus     null.String  `boil:"start_beacon_status" json:"start_beacon_status,omitempty" toml:"start_beacon_status" yaml:"start_beacon_status,omitempty"`
 	EndBeaconStatus       null.String  `boil:"end_beacon_status" json:"end_beacon_status,omitempty" toml:"end_beacon_status" yaml:"end_beacon_status,omitempty"`
+	Decideds              null.Int     `boil:"decideds" json:"decideds,omitempty" toml:"decideds" yaml:"decideds,omitempty"`
 	Effectiveness         null.Float32 `boil:"effectiveness" json:"effectiveness,omitempty" toml:"effectiveness" yaml:"effectiveness,omitempty"`
 	AttestationRate       null.Float32 `boil:"attestation_rate" json:"attestation_rate,omitempty" toml:"attestation_rate" yaml:"attestation_rate,omitempty"`
 	AttestationsAssigned  null.Int16   `boil:"attestations_assigned" json:"attestations_assigned,omitempty" toml:"attestations_assigned" yaml:"attestations_assigned,omitempty"`
@@ -61,6 +62,7 @@ var ValidatorPerformanceColumns = struct {
 	Index                 string
 	StartBeaconStatus     string
 	EndBeaconStatus       string
+	Decideds              string
 	Effectiveness         string
 	AttestationRate       string
 	AttestationsAssigned  string
@@ -83,6 +85,7 @@ var ValidatorPerformanceColumns = struct {
 	Index:                 "index",
 	StartBeaconStatus:     "start_beacon_status",
 	EndBeaconStatus:       "end_beacon_status",
+	Decideds:              "decideds",
 	Effectiveness:         "effectiveness",
 	AttestationRate:       "attestation_rate",
 	AttestationsAssigned:  "attestations_assigned",
@@ -107,6 +110,7 @@ var ValidatorPerformanceTableColumns = struct {
 	Index                 string
 	StartBeaconStatus     string
 	EndBeaconStatus       string
+	Decideds              string
 	Effectiveness         string
 	AttestationRate       string
 	AttestationsAssigned  string
@@ -129,6 +133,7 @@ var ValidatorPerformanceTableColumns = struct {
 	Index:                 "validator_performances.index",
 	StartBeaconStatus:     "validator_performances.start_beacon_status",
 	EndBeaconStatus:       "validator_performances.end_beacon_status",
+	Decideds:              "validator_performances.decideds",
 	Effectiveness:         "validator_performances.effectiveness",
 	AttestationRate:       "validator_performances.attestation_rate",
 	AttestationsAssigned:  "validator_performances.attestations_assigned",
@@ -304,6 +309,7 @@ var ValidatorPerformanceWhere = struct {
 	Index                 whereHelpernull_Int
 	StartBeaconStatus     whereHelpernull_String
 	EndBeaconStatus       whereHelpernull_String
+	Decideds              whereHelpernull_Int
 	Effectiveness         whereHelpernull_Float32
 	AttestationRate       whereHelpernull_Float32
 	AttestationsAssigned  whereHelpernull_Int16
@@ -326,6 +332,7 @@ var ValidatorPerformanceWhere = struct {
 	Index:                 whereHelpernull_Int{field: "\"validator_performances\".\"index\""},
 	StartBeaconStatus:     whereHelpernull_String{field: "\"validator_performances\".\"start_beacon_status\""},
 	EndBeaconStatus:       whereHelpernull_String{field: "\"validator_performances\".\"end_beacon_status\""},
+	Decideds:              whereHelpernull_Int{field: "\"validator_performances\".\"decideds\""},
 	Effectiveness:         whereHelpernull_Float32{field: "\"validator_performances\".\"effectiveness\""},
 	AttestationRate:       whereHelpernull_Float32{field: "\"validator_performances\".\"attestation_rate\""},
 	AttestationsAssigned:  whereHelpernull_Int16{field: "\"validator_performances\".\"attestations_assigned\""},
@@ -367,9 +374,9 @@ func (r *validatorPerformanceR) GetPublicKeyValidator() *Validator {
 type validatorPerformanceL struct{}
 
 var (
-	validatorPerformanceAllColumns            = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "solvent_whole_day", "index", "start_beacon_status", "end_beacon_status", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed"}
+	validatorPerformanceAllColumns            = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "solvent_whole_day", "index", "start_beacon_status", "end_beacon_status", "decideds", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed"}
 	validatorPerformanceColumnsWithoutDefault = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "solvent_whole_day"}
-	validatorPerformanceColumnsWithDefault    = []string{"index", "start_beacon_status", "end_beacon_status", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed"}
+	validatorPerformanceColumnsWithDefault    = []string{"index", "start_beacon_status", "end_beacon_status", "decideds", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed"}
 	validatorPerformancePrimaryKeyColumns     = []string{"provider", "day", "public_key"}
 	validatorPerformanceGeneratedColumns      = []string{}
 )

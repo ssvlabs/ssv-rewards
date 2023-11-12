@@ -47,10 +47,16 @@ CREATE TABLE IF NOT EXISTS validator_events (
 	log_index INTEGER NOT NULL,
     public_key TEXT NOT NULL REFERENCES validators(public_key),
 	owner_address TEXT NOT NULL,
-	owner_is_contract BOOLEAN NOT NULL,
     event_name TEXT NOT NULL,
     activated BOOLEAN NOT NULL,
 	UNIQUE (block_number, log_index, owner_address, public_key)
+);
+
+CREATE TABLE IF NOT EXISTS deployers (
+	owner_address TEXT NOT NULL,
+	deployer_address TEXT NOT NULL,
+	tx_hash TEXT NOT NULL,
+	PRIMARY KEY (owner_address)
 );
 
 CREATE INDEX IF NOT EXISTS idx_validator_events_public_key ON validator_events(public_key);
@@ -72,6 +78,7 @@ CREATE TABLE IF NOT EXISTS validator_performances (
 	index INT,
 	start_beacon_status TEXT,
 	end_beacon_status TEXT,
+	decideds INT,
 
 	effectiveness REAL,
 	attestation_rate REAL,

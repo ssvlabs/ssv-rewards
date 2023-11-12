@@ -12,7 +12,9 @@ import (
 	eth2client "github.com/attestantio/go-eth2-client"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/carlmjohnson/requests"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/sourcegraph/conc/pool"
 
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
@@ -32,6 +34,7 @@ func SyncValidatorPerformance(
 	ethClient *ethclient.Client,
 	cl eth2client.Service,
 	db *sql.DB,
+	ssvAPIEndpoint string,
 	provider performance.Provider,
 	fromDay time.Time,
 	toDay time.Time,
@@ -194,75 +197,119 @@ func SyncValidatorPerformance(
 		}
 
 		// Insert ValidatorPerformance records.
+		pool := pool.New().WithContext(ctx).WithCancelOnError()
+
+		var decideds = map[string]int{}
+		pool.Go(func(ctx context.Context) error {
+			var resp struct {
+				Error      string
+				Validators map[string]struct {
+					Duties int
+				}
+			}
+			err := requests.URL(ssvAPIEndpoint).
+				Pathf("/api/v4/mainnet/validators/duty_counts/%d/%d", fromEpoch, toEpoch).
+				ToJSON(&resp).
+				Fetch(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get validator duties: %w", err)
+			}
+			if resp.Error != "" {
+				return fmt.Errorf("failed to get validator duties: %s", resp.Error)
+			}
+			for pubKey, data := range resp.Validators {
+				decideds[pubKey] = data.Duties
+			}
+			return nil
+		})
+
+		var performances []*models.ValidatorPerformance
+		pool.Go(func(ctx context.Context) error {
+			for pubKey, activeValidator := range activeValidators {
+				performance := models.ValidatorPerformance{
+					Provider:        providerType,
+					Day:             day,
+					FromEpoch:       int(fromEpoch),
+					ToEpoch:         int(toEpoch),
+					OwnerAddress:    activeValidator.OwnerAddress,
+					PublicKey:       hex.EncodeToString(pubKey[:]),
+					SolventWholeDay: activeValidator.Since < fromEpoch,
+				}
+				if validator, ok := validatorsByPubKey[pubKey]; ok {
+					performance.Index = null.IntFrom(validator.Index.Int)
+
+					phase0Validator := &phase0.Validator{
+						PublicKey:        pubKey,
+						EffectiveBalance: phase0.Gwei(validator.BeaconEffectiveBalance.Int64),
+						Slashed:          validator.BeaconSlashed.Bool,
+						ActivationEligibilityEpoch: phase0.Epoch(
+							validator.BeaconActivationEligibilityEpoch.Int,
+						),
+						ActivationEpoch:   phase0.Epoch(validator.BeaconActivationEpoch.Int),
+						ExitEpoch:         phase0.Epoch(validator.BeaconExitEpoch.Int),
+						WithdrawableEpoch: phase0.Epoch(validator.BeaconWithdrawableEpoch.Int),
+					}
+					startState := v1.ValidatorToState(phase0Validator, fromEpoch, spec.FarFutureEpoch)
+					endState := v1.ValidatorToState(phase0Validator, toEpoch, spec.FarFutureEpoch)
+					performance.StartBeaconStatus = null.StringFrom(startState.String())
+					performance.EndBeaconStatus = null.StringFrom(endState.String())
+
+					data, err := provider.ValidatorPerformance(
+						ctx,
+						spec,
+						day,
+						fromEpoch,
+						toEpoch,
+						phase0.Epoch(validator.BeaconActivationEpoch.Int),
+						phase0.Epoch(validator.BeaconExitEpoch.Int),
+						phase0.ValidatorIndex(validator.Index.Int),
+					)
+					if err != nil {
+						return fmt.Errorf("failed to get validator performance: %w", err)
+					}
+					if data != nil {
+						performance.Effectiveness = null.Float32FromPtr(data.Effectiveness)
+						performance.AttestationRate = null.Float32From(data.AttestationRate)
+						performance.ProposalsAssigned = null.Int16From(data.Proposals.Assigned)
+						performance.ProposalsExecuted = null.Int16From(data.Proposals.Executed)
+						performance.ProposalsMissed = null.Int16From(data.Proposals.Missed)
+						performance.AttestationsAssigned = null.Int16From(data.Attestations.Assigned)
+						performance.AttestationsExecuted = null.Int16From(data.Attestations.Executed)
+						performance.AttestationsMissed = null.Int16From(data.Attestations.Missed)
+						performance.SyncCommitteeAssigned = null.Int16From(data.SyncCommittee.Assigned)
+						performance.SyncCommitteeExecuted = null.Int16From(data.SyncCommittee.Executed)
+						performance.SyncCommitteeMissed = null.Int16From(data.SyncCommittee.Missed)
+					} else {
+						if startState.IsAttesting() || endState.IsAttesting() {
+							logger.Warn(
+								"missing validator performance",
+								zap.String("public_key", hex.EncodeToString(pubKey[:])),
+								zap.Int("index", int(validator.Index.Int)),
+							)
+						}
+					}
+				}
+				performances = append(performances, &performance)
+			}
+			return nil
+		})
+
+		// Wait for tasks to complete.
+		if err := pool.Wait(); err != nil {
+			return fmt.Errorf("failed waiting for tasks: %w", err)
+		}
+
+		// Insert ValidatorPerformance records.
 		tx, err := db.Begin()
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
 		defer tx.Rollback()
-		for pubKey, activeValidator := range activeValidators {
-			performance := models.ValidatorPerformance{
-				Provider:        providerType,
-				Day:             day,
-				FromEpoch:       int(fromEpoch),
-				ToEpoch:         int(toEpoch),
-				OwnerAddress:    activeValidator.OwnerAddress,
-				PublicKey:       hex.EncodeToString(pubKey[:]),
-				SolventWholeDay: activeValidator.Since < fromEpoch,
+		for _, performance := range performances {
+			if decideds, ok := decideds[performance.PublicKey]; ok {
+				performance.Decideds = null.IntFrom(decideds)
 			}
-			if validator, ok := validatorsByPubKey[pubKey]; ok {
-				performance.Index = null.IntFrom(validator.Index.Int)
 
-				phase0Validator := &phase0.Validator{
-					PublicKey:        pubKey,
-					EffectiveBalance: phase0.Gwei(validator.BeaconEffectiveBalance.Int64),
-					Slashed:          validator.BeaconSlashed.Bool,
-					ActivationEligibilityEpoch: phase0.Epoch(
-						validator.BeaconActivationEligibilityEpoch.Int,
-					),
-					ActivationEpoch:   phase0.Epoch(validator.BeaconActivationEpoch.Int),
-					ExitEpoch:         phase0.Epoch(validator.BeaconExitEpoch.Int),
-					WithdrawableEpoch: phase0.Epoch(validator.BeaconWithdrawableEpoch.Int),
-				}
-				startState := v1.ValidatorToState(phase0Validator, fromEpoch, spec.FarFutureEpoch)
-				endState := v1.ValidatorToState(phase0Validator, toEpoch, spec.FarFutureEpoch)
-				performance.StartBeaconStatus = null.StringFrom(startState.String())
-				performance.EndBeaconStatus = null.StringFrom(endState.String())
-
-				data, err := provider.ValidatorPerformance(
-					ctx,
-					spec,
-					day,
-					fromEpoch,
-					toEpoch,
-					phase0.Epoch(validator.BeaconActivationEpoch.Int),
-					phase0.Epoch(validator.BeaconExitEpoch.Int),
-					phase0.ValidatorIndex(validator.Index.Int),
-				)
-				if err != nil {
-					return fmt.Errorf("failed to get validator performance: %w", err)
-				}
-				if data != nil {
-					performance.Effectiveness = null.Float32FromPtr(data.Effectiveness)
-					performance.AttestationRate = null.Float32From(data.AttestationRate)
-					performance.ProposalsAssigned = null.Int16From(data.Proposals.Assigned)
-					performance.ProposalsExecuted = null.Int16From(data.Proposals.Executed)
-					performance.ProposalsMissed = null.Int16From(data.Proposals.Missed)
-					performance.AttestationsAssigned = null.Int16From(data.Attestations.Assigned)
-					performance.AttestationsExecuted = null.Int16From(data.Attestations.Executed)
-					performance.AttestationsMissed = null.Int16From(data.Attestations.Missed)
-					performance.SyncCommitteeAssigned = null.Int16From(data.SyncCommittee.Assigned)
-					performance.SyncCommitteeExecuted = null.Int16From(data.SyncCommittee.Executed)
-					performance.SyncCommitteeMissed = null.Int16From(data.SyncCommittee.Missed)
-				} else {
-					if startState.IsAttesting() || endState.IsAttesting() {
-						logger.Warn(
-							"missing validator performance",
-							zap.String("public_key", hex.EncodeToString(pubKey[:])),
-							zap.Int("index", int(validator.Index.Int)),
-						)
-					}
-				}
-			}
 			if err := performance.Insert(ctx, tx, boil.Infer()); err != nil {
 				return fmt.Errorf("failed to insert validator performance: %w", err)
 			}

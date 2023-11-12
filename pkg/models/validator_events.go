@@ -31,7 +31,6 @@ type ValidatorEvent struct {
 	LogIndex        int       `boil:"log_index" json:"log_index" toml:"log_index" yaml:"log_index"`
 	PublicKey       string    `boil:"public_key" json:"public_key" toml:"public_key" yaml:"public_key"`
 	OwnerAddress    string    `boil:"owner_address" json:"owner_address" toml:"owner_address" yaml:"owner_address"`
-	OwnerIsContract bool      `boil:"owner_is_contract" json:"owner_is_contract" toml:"owner_is_contract" yaml:"owner_is_contract"`
 	EventName       string    `boil:"event_name" json:"event_name" toml:"event_name" yaml:"event_name"`
 	Activated       bool      `boil:"activated" json:"activated" toml:"activated" yaml:"activated"`
 
@@ -48,7 +47,6 @@ var ValidatorEventColumns = struct {
 	LogIndex        string
 	PublicKey       string
 	OwnerAddress    string
-	OwnerIsContract string
 	EventName       string
 	Activated       string
 }{
@@ -60,7 +58,6 @@ var ValidatorEventColumns = struct {
 	LogIndex:        "log_index",
 	PublicKey:       "public_key",
 	OwnerAddress:    "owner_address",
-	OwnerIsContract: "owner_is_contract",
 	EventName:       "event_name",
 	Activated:       "activated",
 }
@@ -74,7 +71,6 @@ var ValidatorEventTableColumns = struct {
 	LogIndex        string
 	PublicKey       string
 	OwnerAddress    string
-	OwnerIsContract string
 	EventName       string
 	Activated       string
 }{
@@ -86,7 +82,6 @@ var ValidatorEventTableColumns = struct {
 	LogIndex:        "validator_events.log_index",
 	PublicKey:       "validator_events.public_key",
 	OwnerAddress:    "validator_events.owner_address",
-	OwnerIsContract: "validator_events.owner_is_contract",
 	EventName:       "validator_events.event_name",
 	Activated:       "validator_events.activated",
 }
@@ -111,7 +106,6 @@ var ValidatorEventWhere = struct {
 	LogIndex        whereHelperint
 	PublicKey       whereHelperstring
 	OwnerAddress    whereHelperstring
-	OwnerIsContract whereHelperbool
 	EventName       whereHelperstring
 	Activated       whereHelperbool
 }{
@@ -123,7 +117,6 @@ var ValidatorEventWhere = struct {
 	LogIndex:        whereHelperint{field: "\"validator_events\".\"log_index\""},
 	PublicKey:       whereHelperstring{field: "\"validator_events\".\"public_key\""},
 	OwnerAddress:    whereHelperstring{field: "\"validator_events\".\"owner_address\""},
-	OwnerIsContract: whereHelperbool{field: "\"validator_events\".\"owner_is_contract\""},
 	EventName:       whereHelperstring{field: "\"validator_events\".\"event_name\""},
 	Activated:       whereHelperbool{field: "\"validator_events\".\"activated\""},
 }
@@ -166,8 +159,8 @@ func (r *validatorEventR) GetPublicKeyValidator() *Validator {
 type validatorEventL struct{}
 
 var (
-	validatorEventAllColumns            = []string{"id", "contract_event_id", "slot", "block_number", "block_time", "log_index", "public_key", "owner_address", "owner_is_contract", "event_name", "activated"}
-	validatorEventColumnsWithoutDefault = []string{"contract_event_id", "slot", "block_number", "block_time", "log_index", "public_key", "owner_address", "owner_is_contract", "event_name", "activated"}
+	validatorEventAllColumns            = []string{"id", "contract_event_id", "slot", "block_number", "block_time", "log_index", "public_key", "owner_address", "event_name", "activated"}
+	validatorEventColumnsWithoutDefault = []string{"contract_event_id", "slot", "block_number", "block_time", "log_index", "public_key", "owner_address", "event_name", "activated"}
 	validatorEventColumnsWithDefault    = []string{"id"}
 	validatorEventPrimaryKeyColumns     = []string{"id"}
 	validatorEventGeneratedColumns      = []string{}

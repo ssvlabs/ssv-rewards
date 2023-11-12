@@ -40,6 +40,7 @@ type SyncCmd struct {
 	DataDir                    string `env:"DATA_DIR"                      default:"./data"               help:"Path to the data directory."`
 	ExecutionEndpoint          string `env:"EXECUTION_ENDPOINT"                                           help:"RPC endpoint to an Ethereum execution node."                                        required:""`
 	ConsensusEndpoint          string `env:"CONSENSUS_ENDPOINT"                                           help:"HTTP endpoint to an Ethereum Beacon node API."                                      required:""`
+	SSVAPIEndpoint             string `env:"SSV_API_ENDPOINT"                                             help:"HTTP endpoint to an SSV API."                                                        required:""`
 	E2MEndpoint                string `env:"E2M_ENDPOINT"                                                 help:"HTTP endpoint to an ethereum2-monitor API."                                         required:"" xor:"monitoring-endpoint" name:"e2m-endpoint"`
 	BeaconchaEndpoint          string `env:"BEACONCHA_ENDPOINT"            default:"https://beaconcha.in" help:"HTTP endpoint to a beaconcha.in API."                                               required:"" xor:"monitoring-endpoint"`
 	BeaconchaAPIKey            string `env:"BEACONCHA_API_KEY"                                            help:"API key for beaconcha.in API."                                                      required:""`
@@ -115,6 +116,7 @@ func (c *SyncCmd) Run(logger *zap.Logger, globals *Globals) error {
 		truncate := `
 			TRUNCATE TABLE validators CASCADE;
 			TRUNCATE TABLE validator_events CASCADE;
+			TRUNCATE TABLE deployers CASCADE;
 			TRUNCATE TABLE validator_performances CASCADE;
 		`
 		if _, err := db.ExecContext(ctx, truncate); err != nil {
@@ -266,6 +268,7 @@ func (c *SyncCmd) Run(logger *zap.Logger, globals *Globals) error {
 		el.RPC(),
 		cl,
 		db,
+		c.SSVAPIEndpoint,
 		performanceProvider,
 		plan.Rounds[0].Period.FirstDay(),
 		plan.Rounds[len(plan.Rounds)-1].Period.LastDay(),

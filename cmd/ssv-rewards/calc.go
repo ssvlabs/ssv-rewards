@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"os"
@@ -75,8 +77,10 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 	// Calculate rewards.
 	var byValidator []*ValidatorParticipationRound
 	var byOwner []*OwnerParticipationRound
+	var byRecipient []*RecipientParticipation
 	var totalByValidator = map[string]*ValidatorParticipation{}
 	var totalByOwner = map[string]*OwnerParticipation{}
+	var totalByRecipient = map[string]*RecipientParticipation{}
 	for _, round := range completeRounds {
 		// Collect validator and owner participations.
 		validatorParticipations, err := c.validatorParticipations(ctx, round.Period)
@@ -86,6 +90,10 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 		ownerParticipations, err := c.ownerParticipations(ctx, round.Period)
 		if err != nil {
 			return fmt.Errorf("failed to get owner participations: %w", err)
+		}
+		recipientParticipations, err := c.recipientParticipations(ctx, round.Period)
+		if err != nil {
+			return fmt.Errorf("failed to get recipient participations: %w", err)
 		}
 
 		// Calculate appropriate tier and rewards.
@@ -137,6 +145,18 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 				totalByOwner[participation.OwnerAddress] = &cpy
 			}
 		}
+		for _, participation := range recipientParticipations {
+			participation.Reward = dailyReward * float64(participation.ActiveDays)
+
+			byRecipient = append(byRecipient, participation)
+			if total, ok := totalByRecipient[participation.RecipientAddress]; ok {
+				total.ActiveDays += participation.ActiveDays
+				total.Reward += participation.Reward
+			} else {
+				cpy := *participation
+				totalByRecipient[participation.RecipientAddress] = &cpy
+			}
+		}
 
 		// Export rewards.
 		dir := filepath.Join(c.Dir, round.Period.String())
@@ -149,11 +169,14 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 		if err := exportCSV(ownerParticipations, filepath.Join(dir, "by-owner.csv")); err != nil {
 			return fmt.Errorf("failed to export owner rewards: %w", err)
 		}
+		if err := exportCSV(recipientParticipations, filepath.Join(dir, "by-recipient.csv")); err != nil {
+			return fmt.Errorf("failed to export recipient rewards: %w", err)
+		}
 
 		// Export cumulative rewards.
 		totalRewards := map[string]*big.Int{}
-		for _, participation := range totalByOwner {
-			totalRewards[participation.OwnerAddress], _ = new(big.Float).Mul(
+		for _, participation := range totalByRecipient {
+			totalRewards[participation.RecipientAddress], _ = new(big.Float).Mul(
 				big.NewFloat(participation.Reward),
 				big.NewFloat(math.Pow10(18)),
 			).Int(nil)
@@ -187,11 +210,17 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 	if err := exportCSV(byOwner, filepath.Join(c.Dir, "by-owner.csv")); err != nil {
 		return fmt.Errorf("failed to export total owner rewards: %w", err)
 	}
+	if err := exportCSV(byRecipient, filepath.Join(c.Dir, "by-recipient.csv")); err != nil {
+		return fmt.Errorf("failed to export total recipient rewards: %w", err)
+	}
 	if err := exportCSV(maps.Values(totalByValidator), filepath.Join(c.Dir, "total-by-validator.csv")); err != nil {
 		return fmt.Errorf("failed to export total validator rewards: %w", err)
 	}
 	if err := exportCSV(maps.Values(totalByOwner), filepath.Join(c.Dir, "total-by-owner.csv")); err != nil {
 		return fmt.Errorf("failed to export total owner rewards: %w", err)
+	}
+	if err := exportCSV(maps.Values(totalByRecipient), filepath.Join(c.Dir, "total-by-recipient.csv")); err != nil {
+		return fmt.Errorf("failed to export total recipient rewards: %w", err)
 	}
 
 	return nil
@@ -243,7 +272,32 @@ func (c *CalcCmd) ownerParticipations(
 	).Bind(ctx, c.db, &rewards)
 }
 
+type RecipientParticipation struct {
+	RecipientAddress string
+	IsDeployer       bool
+	ActiveDays       int
+	Reward           float64 `boil:"-"`
+}
+
+func (c *CalcCmd) recipientParticipations(
+	ctx context.Context,
+	period rewards.Period,
+) ([]*RecipientParticipation, error) {
+	var rewards []*RecipientParticipation
+	return rewards, queries.Raw(
+		"SELECT * FROM active_days_by_recipient($1, $2, $3)",
+		c.PerformanceProvider, c.MinimumDailyAttestations, time.Time(period),
+	).Bind(ctx, c.db, &rewards)
+}
+
 func exportCSV(data any, fileName string) error {
+	// Use tabs as separators.
+	gocsv.SetCSVWriter(func(out io.Writer) *gocsv.SafeCSVWriter {
+		w := csv.NewWriter(out)
+		w.Comma = '\t'
+		return gocsv.NewSafeCSVWriter(w)
+	})
+
 	f, err := os.Create(fileName)
 	if err != nil {
 		return fmt.Errorf("failed to create %q: %w", fileName, err)

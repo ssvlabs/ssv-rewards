@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/bloxapp/ssv/networkconfig"
 	registrystorage "github.com/bloxapp/ssv/registry/storage"
+	"github.com/carlmjohnson/requests"
 	"golang.org/x/exp/maps"
 
 	eth2client "github.com/attestantio/go-eth2-client"
@@ -380,6 +382,49 @@ func recordHandledEvents(
 						err,
 					)
 				}
+				if len(codeAt[ownerAddress]) > 0 {
+					var resp struct {
+						Status  string `json:"status"`
+						Message string `json:"message"`
+						Result  []struct {
+							ContractAddress string `json:"contractAddress"`
+							ContractCreator string `json:"contractCreator"`
+							TxHash          string `json:"txHash"`
+						}
+					}
+					err := requests.URL("https://api.etherscan.io/api").
+						Param("module", "contract").
+						Param("action", "getcontractcreation").
+						Param("contractaddresses", ownerAddress.String()).
+						Param("apikey", "YourApiKeyToken").
+						ToJSON(&resp).
+						Fetch(ctx)
+					if err != nil {
+						return fmt.Errorf("failed to get contract creation: %w", err)
+					}
+					if resp.Status != "1" || !strings.HasPrefix(resp.Message, "OK-") {
+						return fmt.Errorf("failed to get contract creation: %s", resp.Message)
+					}
+					if len(resp.Result) != 1 {
+						return fmt.Errorf("failed to get contract creation: no result")
+					}
+					deployerAddress, err := hex.DecodeString(resp.Result[0].ContractAddress[2:])
+					if err != nil {
+						return fmt.Errorf("failed to decode deployer address: %w", err)
+					}
+					txHash, err := hex.DecodeString(resp.Result[0].TxHash[2:])
+					if err != nil {
+						return fmt.Errorf("failed to decode tx hash: %w", err)
+					}
+					deployer := models.Deployer{
+						OwnerAddress:    hex.EncodeToString(ownerAddress[:]),
+						DeployerAddress: hex.EncodeToString(deployerAddress),
+						TXHash:          hex.EncodeToString(txHash),
+					}
+					if err := deployer.Insert(ctx, db, boil.Infer()); err != nil {
+						return fmt.Errorf("failed to upsert deployer: %w", err)
+					}
+				}
 			}
 
 			for _, pubKey := range pubKeys {
@@ -400,7 +445,6 @@ func recordHandledEvents(
 					LogIndex:        int(eventTrace.Log.Index),
 					EventName:       eventName,
 					OwnerAddress:    hex.EncodeToString(ownerAddress[:]),
-					OwnerIsContract: len(codeAt[ownerAddress]) > 0,
 					PublicKey:       pubKey,
 					Activated:       activated,
 				}

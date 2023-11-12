@@ -1,3 +1,8 @@
+DROP FUNCTION IF EXISTS active_days_by_validator(provider_type, INTEGER, DATE, DATE);
+DROP FUNCTION IF EXISTS active_days_by_owner(provider_type, INTEGER, DATE, DATE);
+DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, DATE, DATE);
+DROP FUNCTION IF EXISTS inactive_days_by_validator(provider_type, INTEGER, DATE, DATE);
+
 CREATE OR REPLACE FUNCTION active_days_by_validator(_provider provider_type, min_daily_attestations INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
 RETURNS TABLE (
     owner_address TEXT,
@@ -37,6 +42,26 @@ BEGIN
         SUM(dr.active_days)::BIGINT AS active_days
     FROM active_days_by_validator(_provider, min_daily_attestations, from_period, to_period) dr
     GROUP BY dr.owner_address;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+CREATE OR REPLACE FUNCTION active_days_by_recipient(_provider provider_type, min_daily_attestations INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
+RETURNS TABLE (
+    recipient_address TEXT,
+    is_deployer BOOLEAN,
+    validators BIGINT,
+    active_days BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        COALESCE(d.deployer_address, ado.owner_address) AS recipient_address,
+        BOOL_OR(d.deployer_address IS NOT NULL) AS is_deployer,
+        SUM(ado.validators)::BIGINT AS validators,
+        SUM(ado.active_days)::BIGINT AS active_days
+    FROM active_days_by_owner(_provider, min_daily_attestations, from_period, to_period) ado
+    LEFT JOIN deployers d ON ado.owner_address = d.owner_address
+    GROUP BY COALESCE(d.deployer_address, ado.owner_address);
 END;
 $$ LANGUAGE plpgsql STABLE;
 
