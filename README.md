@@ -72,7 +72,7 @@ Synchronize validator activity and performance:
 docker-compose run --rm sync
 ```
 
-_This might take a while, depending on how long ago the SSV contract was deployed._
+_This might take a while, depending on how long ago the SSV contract was deployed and how many validators there are._
 
 ### Calculation
 
