@@ -197,7 +197,7 @@ func SyncValidatorPerformance(
 		}
 
 		// Insert ValidatorPerformance records.
-		pool := pool.New().WithContext(ctx).WithCancelOnError()
+		pool := pool.New().WithContext(ctx).WithCancelOnError().WithFirstError()
 
 		var decideds = map[string]int{}
 		pool.Go(func(ctx context.Context) error {
@@ -207,8 +207,12 @@ func SyncValidatorPerformance(
 					Duties int
 				}
 			}
-			err := requests.URL(ssvAPIEndpoint).
-				Pathf("/api/v4/%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
+			url := ssvAPIEndpoint
+			if url[len(url)-1] != '/' {
+				url += "/"
+			}
+			err := requests.URL(url).
+				Pathf("%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
 				ToJSON(&resp).
 				Fetch(ctx)
 			if err != nil {
