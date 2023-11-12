@@ -24,16 +24,16 @@ import (
 
 // ValidatorPerformance is an object representing the database table.
 type ValidatorPerformance struct {
-	Provider              Provider     `boil:"provider" json:"provider" toml:"provider" yaml:"provider"`
+	Provider              ProviderType `boil:"provider" json:"provider" toml:"provider" yaml:"provider"`
 	Day                   time.Time    `boil:"day" json:"day" toml:"day" yaml:"day"`
 	FromEpoch             int          `boil:"from_epoch" json:"from_epoch" toml:"from_epoch" yaml:"from_epoch"`
 	ToEpoch               int          `boil:"to_epoch" json:"to_epoch" toml:"to_epoch" yaml:"to_epoch"`
 	OwnerAddress          string       `boil:"owner_address" json:"owner_address" toml:"owner_address" yaml:"owner_address"`
 	PublicKey             string       `boil:"public_key" json:"public_key" toml:"public_key" yaml:"public_key"`
+	SolventWholeDay       bool         `boil:"solvent_whole_day" json:"solvent_whole_day" toml:"solvent_whole_day" yaml:"solvent_whole_day"`
 	Index                 null.Int     `boil:"index" json:"index,omitempty" toml:"index" yaml:"index,omitempty"`
 	StartBeaconStatus     null.String  `boil:"start_beacon_status" json:"start_beacon_status,omitempty" toml:"start_beacon_status" yaml:"start_beacon_status,omitempty"`
 	EndBeaconStatus       null.String  `boil:"end_beacon_status" json:"end_beacon_status,omitempty" toml:"end_beacon_status" yaml:"end_beacon_status,omitempty"`
-	ActiveWholeDay        bool         `boil:"active_whole_day" json:"active_whole_day" toml:"active_whole_day" yaml:"active_whole_day"`
 	Effectiveness         null.Float32 `boil:"effectiveness" json:"effectiveness,omitempty" toml:"effectiveness" yaml:"effectiveness,omitempty"`
 	AttestationRate       null.Float32 `boil:"attestation_rate" json:"attestation_rate,omitempty" toml:"attestation_rate" yaml:"attestation_rate,omitempty"`
 	AttestationsAssigned  null.Int16   `boil:"attestations_assigned" json:"attestations_assigned,omitempty" toml:"attestations_assigned" yaml:"attestations_assigned,omitempty"`
@@ -57,10 +57,10 @@ var ValidatorPerformanceColumns = struct {
 	ToEpoch               string
 	OwnerAddress          string
 	PublicKey             string
+	SolventWholeDay       string
 	Index                 string
 	StartBeaconStatus     string
 	EndBeaconStatus       string
-	ActiveWholeDay        string
 	Effectiveness         string
 	AttestationRate       string
 	AttestationsAssigned  string
@@ -79,10 +79,10 @@ var ValidatorPerformanceColumns = struct {
 	ToEpoch:               "to_epoch",
 	OwnerAddress:          "owner_address",
 	PublicKey:             "public_key",
+	SolventWholeDay:       "solvent_whole_day",
 	Index:                 "index",
 	StartBeaconStatus:     "start_beacon_status",
 	EndBeaconStatus:       "end_beacon_status",
-	ActiveWholeDay:        "active_whole_day",
 	Effectiveness:         "effectiveness",
 	AttestationRate:       "attestation_rate",
 	AttestationsAssigned:  "attestations_assigned",
@@ -103,10 +103,10 @@ var ValidatorPerformanceTableColumns = struct {
 	ToEpoch               string
 	OwnerAddress          string
 	PublicKey             string
+	SolventWholeDay       string
 	Index                 string
 	StartBeaconStatus     string
 	EndBeaconStatus       string
-	ActiveWholeDay        string
 	Effectiveness         string
 	AttestationRate       string
 	AttestationsAssigned  string
@@ -125,10 +125,10 @@ var ValidatorPerformanceTableColumns = struct {
 	ToEpoch:               "validator_performances.to_epoch",
 	OwnerAddress:          "validator_performances.owner_address",
 	PublicKey:             "validator_performances.public_key",
+	SolventWholeDay:       "validator_performances.solvent_whole_day",
 	Index:                 "validator_performances.index",
 	StartBeaconStatus:     "validator_performances.start_beacon_status",
 	EndBeaconStatus:       "validator_performances.end_beacon_status",
-	ActiveWholeDay:        "validator_performances.active_whole_day",
 	Effectiveness:         "validator_performances.effectiveness",
 	AttestationRate:       "validator_performances.attestation_rate",
 	AttestationsAssigned:  "validator_performances.attestations_assigned",
@@ -144,34 +144,34 @@ var ValidatorPerformanceTableColumns = struct {
 
 // Generated where
 
-type whereHelperProvider struct{ field string }
+type whereHelperProviderType struct{ field string }
 
-func (w whereHelperProvider) EQ(x Provider) qm.QueryMod {
+func (w whereHelperProviderType) EQ(x ProviderType) qm.QueryMod {
 	return qmhelper.Where(w.field, qmhelper.EQ, x)
 }
-func (w whereHelperProvider) NEQ(x Provider) qm.QueryMod {
+func (w whereHelperProviderType) NEQ(x ProviderType) qm.QueryMod {
 	return qmhelper.Where(w.field, qmhelper.NEQ, x)
 }
-func (w whereHelperProvider) LT(x Provider) qm.QueryMod {
+func (w whereHelperProviderType) LT(x ProviderType) qm.QueryMod {
 	return qmhelper.Where(w.field, qmhelper.LT, x)
 }
-func (w whereHelperProvider) LTE(x Provider) qm.QueryMod {
+func (w whereHelperProviderType) LTE(x ProviderType) qm.QueryMod {
 	return qmhelper.Where(w.field, qmhelper.LTE, x)
 }
-func (w whereHelperProvider) GT(x Provider) qm.QueryMod {
+func (w whereHelperProviderType) GT(x ProviderType) qm.QueryMod {
 	return qmhelper.Where(w.field, qmhelper.GT, x)
 }
-func (w whereHelperProvider) GTE(x Provider) qm.QueryMod {
+func (w whereHelperProviderType) GTE(x ProviderType) qm.QueryMod {
 	return qmhelper.Where(w.field, qmhelper.GTE, x)
 }
-func (w whereHelperProvider) IN(slice []Provider) qm.QueryMod {
+func (w whereHelperProviderType) IN(slice []ProviderType) qm.QueryMod {
 	values := make([]interface{}, 0, len(slice))
 	for _, value := range slice {
 		values = append(values, value)
 	}
 	return qm.WhereIn(fmt.Sprintf("%s IN ?", w.field), values...)
 }
-func (w whereHelperProvider) NIN(slice []Provider) qm.QueryMod {
+func (w whereHelperProviderType) NIN(slice []ProviderType) qm.QueryMod {
 	values := make([]interface{}, 0, len(slice))
 	for _, value := range slice {
 		values = append(values, value)
@@ -294,16 +294,16 @@ func (w whereHelpernull_Int16) IsNull() qm.QueryMod    { return qmhelper.WhereIs
 func (w whereHelpernull_Int16) IsNotNull() qm.QueryMod { return qmhelper.WhereIsNotNull(w.field) }
 
 var ValidatorPerformanceWhere = struct {
-	Provider              whereHelperProvider
+	Provider              whereHelperProviderType
 	Day                   whereHelpertime_Time
 	FromEpoch             whereHelperint
 	ToEpoch               whereHelperint
 	OwnerAddress          whereHelperstring
 	PublicKey             whereHelperstring
+	SolventWholeDay       whereHelperbool
 	Index                 whereHelpernull_Int
 	StartBeaconStatus     whereHelpernull_String
 	EndBeaconStatus       whereHelpernull_String
-	ActiveWholeDay        whereHelperbool
 	Effectiveness         whereHelpernull_Float32
 	AttestationRate       whereHelpernull_Float32
 	AttestationsAssigned  whereHelpernull_Int16
@@ -316,16 +316,16 @@ var ValidatorPerformanceWhere = struct {
 	SyncCommitteeExecuted whereHelpernull_Int16
 	SyncCommitteeMissed   whereHelpernull_Int16
 }{
-	Provider:              whereHelperProvider{field: "\"validator_performances\".\"provider\""},
+	Provider:              whereHelperProviderType{field: "\"validator_performances\".\"provider\""},
 	Day:                   whereHelpertime_Time{field: "\"validator_performances\".\"day\""},
 	FromEpoch:             whereHelperint{field: "\"validator_performances\".\"from_epoch\""},
 	ToEpoch:               whereHelperint{field: "\"validator_performances\".\"to_epoch\""},
 	OwnerAddress:          whereHelperstring{field: "\"validator_performances\".\"owner_address\""},
 	PublicKey:             whereHelperstring{field: "\"validator_performances\".\"public_key\""},
+	SolventWholeDay:       whereHelperbool{field: "\"validator_performances\".\"solvent_whole_day\""},
 	Index:                 whereHelpernull_Int{field: "\"validator_performances\".\"index\""},
 	StartBeaconStatus:     whereHelpernull_String{field: "\"validator_performances\".\"start_beacon_status\""},
 	EndBeaconStatus:       whereHelpernull_String{field: "\"validator_performances\".\"end_beacon_status\""},
-	ActiveWholeDay:        whereHelperbool{field: "\"validator_performances\".\"active_whole_day\""},
 	Effectiveness:         whereHelpernull_Float32{field: "\"validator_performances\".\"effectiveness\""},
 	AttestationRate:       whereHelpernull_Float32{field: "\"validator_performances\".\"attestation_rate\""},
 	AttestationsAssigned:  whereHelpernull_Int16{field: "\"validator_performances\".\"attestations_assigned\""},
@@ -367,10 +367,10 @@ func (r *validatorPerformanceR) GetPublicKeyValidator() *Validator {
 type validatorPerformanceL struct{}
 
 var (
-	validatorPerformanceAllColumns            = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "index", "start_beacon_status", "end_beacon_status", "active_whole_day", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed"}
-	validatorPerformanceColumnsWithoutDefault = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "active_whole_day"}
+	validatorPerformanceAllColumns            = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "solvent_whole_day", "index", "start_beacon_status", "end_beacon_status", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed"}
+	validatorPerformanceColumnsWithoutDefault = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "solvent_whole_day"}
 	validatorPerformanceColumnsWithDefault    = []string{"index", "start_beacon_status", "end_beacon_status", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed"}
-	validatorPerformancePrimaryKeyColumns     = []string{"day", "public_key"}
+	validatorPerformancePrimaryKeyColumns     = []string{"provider", "day", "public_key"}
 	validatorPerformanceGeneratedColumns      = []string{}
 )
 
@@ -799,7 +799,7 @@ func (o *ValidatorPerformance) SetPublicKeyValidator(ctx context.Context, exec b
 		strmangle.SetParamNames("\"", "\"", 1, []string{"public_key"}),
 		strmangle.WhereClause("\"", "\"", 2, validatorPerformancePrimaryKeyColumns),
 	)
-	values := []interface{}{related.PublicKey, o.Day, o.PublicKey}
+	values := []interface{}{related.PublicKey, o.Provider, o.Day, o.PublicKey}
 
 	if boil.IsDebug(ctx) {
 		writer := boil.DebugWriterFrom(ctx)
@@ -843,7 +843,7 @@ func ValidatorPerformances(mods ...qm.QueryMod) validatorPerformanceQuery {
 
 // FindValidatorPerformance retrieves a single record by ID with an executor.
 // If selectCols is empty Find will return all columns.
-func FindValidatorPerformance(ctx context.Context, exec boil.ContextExecutor, day time.Time, publicKey string, selectCols ...string) (*ValidatorPerformance, error) {
+func FindValidatorPerformance(ctx context.Context, exec boil.ContextExecutor, provider ProviderType, day time.Time, publicKey string, selectCols ...string) (*ValidatorPerformance, error) {
 	validatorPerformanceObj := &ValidatorPerformance{}
 
 	sel := "*"
@@ -851,10 +851,10 @@ func FindValidatorPerformance(ctx context.Context, exec boil.ContextExecutor, da
 		sel = strings.Join(strmangle.IdentQuoteSlice(dialect.LQ, dialect.RQ, selectCols), ",")
 	}
 	query := fmt.Sprintf(
-		"select %s from \"validator_performances\" where \"day\"=$1 AND \"public_key\"=$2", sel,
+		"select %s from \"validator_performances\" where \"provider\"=$1 AND \"day\"=$2 AND \"public_key\"=$3", sel,
 	)
 
-	q := queries.Raw(query, day, publicKey)
+	q := queries.Raw(query, provider, day, publicKey)
 
 	err := q.Bind(ctx, exec, validatorPerformanceObj)
 	if err != nil {
@@ -1206,7 +1206,7 @@ func (o *ValidatorPerformance) Delete(ctx context.Context, exec boil.ContextExec
 	}
 
 	args := queries.ValuesFromMapping(reflect.Indirect(reflect.ValueOf(o)), validatorPerformancePrimaryKeyMapping)
-	sql := "DELETE FROM \"validator_performances\" WHERE \"day\"=$1 AND \"public_key\"=$2"
+	sql := "DELETE FROM \"validator_performances\" WHERE \"provider\"=$1 AND \"day\"=$2 AND \"public_key\"=$3"
 
 	if boil.IsDebug(ctx) {
 		writer := boil.DebugWriterFrom(ctx)
@@ -1303,7 +1303,7 @@ func (o ValidatorPerformanceSlice) DeleteAll(ctx context.Context, exec boil.Cont
 // Reload refetches the object from the database
 // using the primary keys with an executor.
 func (o *ValidatorPerformance) Reload(ctx context.Context, exec boil.ContextExecutor) error {
-	ret, err := FindValidatorPerformance(ctx, exec, o.Day, o.PublicKey)
+	ret, err := FindValidatorPerformance(ctx, exec, o.Provider, o.Day, o.PublicKey)
 	if err != nil {
 		return err
 	}
@@ -1342,16 +1342,16 @@ func (o *ValidatorPerformanceSlice) ReloadAll(ctx context.Context, exec boil.Con
 }
 
 // ValidatorPerformanceExists checks if the ValidatorPerformance row exists.
-func ValidatorPerformanceExists(ctx context.Context, exec boil.ContextExecutor, day time.Time, publicKey string) (bool, error) {
+func ValidatorPerformanceExists(ctx context.Context, exec boil.ContextExecutor, provider ProviderType, day time.Time, publicKey string) (bool, error) {
 	var exists bool
-	sql := "select exists(select 1 from \"validator_performances\" where \"day\"=$1 AND \"public_key\"=$2 limit 1)"
+	sql := "select exists(select 1 from \"validator_performances\" where \"provider\"=$1 AND \"day\"=$2 AND \"public_key\"=$3 limit 1)"
 
 	if boil.IsDebug(ctx) {
 		writer := boil.DebugWriterFrom(ctx)
 		fmt.Fprintln(writer, sql)
-		fmt.Fprintln(writer, day, publicKey)
+		fmt.Fprintln(writer, provider, day, publicKey)
 	}
-	row := exec.QueryRowContext(ctx, sql, day, publicKey)
+	row := exec.QueryRowContext(ctx, sql, provider, day, publicKey)
 
 	err := row.Scan(&exists)
 	if err != nil {
@@ -1363,5 +1363,5 @@ func ValidatorPerformanceExists(ctx context.Context, exec boil.ContextExecutor, 
 
 // Exists checks if the ValidatorPerformance row exists.
 func (o *ValidatorPerformance) Exists(ctx context.Context, exec boil.ContextExecutor) (bool, error) {
-	return ValidatorPerformanceExists(ctx, exec, o.Day, o.PublicKey)
+	return ValidatorPerformanceExists(ctx, exec, o.Provider, o.Day, o.PublicKey)
 }

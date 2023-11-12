@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/bloxapp/ssv-rewards/beacon"
-	"github.com/bloxapp/ssv-rewards/sync/performance"
+	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
 	"github.com/carlmjohnson/requests"
 )
 
@@ -53,11 +53,11 @@ func New(endpoint string) *Client {
 	}
 }
 
-func (m Client) Type() performance.ProviderType {
+func (m *Client) Type() performance.ProviderType {
 	return ProviderType
 }
 
-func (m Client) ValidatorPerformance(
+func (m *Client) ValidatorPerformance(
 	ctx context.Context,
 	spec beacon.Spec,
 	day time.Time,
@@ -99,8 +99,8 @@ func (m Client) ValidatorPerformance(
 	}, nil
 }
 
-func dutyStat(s stat) performance.DutyStat {
-	return performance.DutyStat{
+func dutyStat(s stat) performance.DutyPerformance {
+	return performance.DutyPerformance{
 		Assigned: int16(s.Assigned),
 		Executed: int16(s.Executed),
 		Missed:   int16(s.Missed),

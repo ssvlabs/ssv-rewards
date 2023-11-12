@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/friendsofgo/errors"
+	"github.com/volatiletech/null/v8"
 	"github.com/volatiletech/sqlboiler/v4/boil"
 	"github.com/volatiletech/sqlboiler/v4/queries"
 	"github.com/volatiletech/sqlboiler/v4/queries/qm"
@@ -23,51 +24,89 @@ import (
 
 // State is an object representing the database table.
 type State struct {
-	ID                 int    `boil:"id" json:"id" toml:"id" yaml:"id"`
-	NetworkName        string `boil:"network_name" json:"network_name" toml:"network_name" yaml:"network_name"`
-	LowestBlockNumber  int    `boil:"lowest_block_number" json:"lowest_block_number" toml:"lowest_block_number" yaml:"lowest_block_number"`
-	HighestBlockNumber int    `boil:"highest_block_number" json:"highest_block_number" toml:"highest_block_number" yaml:"highest_block_number"`
+	ID                           int       `boil:"id" json:"id" toml:"id" yaml:"id"`
+	NetworkName                  string    `boil:"network_name" json:"network_name" toml:"network_name" yaml:"network_name"`
+	LowestBlockNumber            int       `boil:"lowest_block_number" json:"lowest_block_number" toml:"lowest_block_number" yaml:"lowest_block_number"`
+	HighestBlockNumber           int       `boil:"highest_block_number" json:"highest_block_number" toml:"highest_block_number" yaml:"highest_block_number"`
+	EarliestValidatorPerformance null.Time `boil:"earliest_validator_performance" json:"earliest_validator_performance,omitempty" toml:"earliest_validator_performance" yaml:"earliest_validator_performance,omitempty"`
+	LatestValidatorPerformance   null.Time `boil:"latest_validator_performance" json:"latest_validator_performance,omitempty" toml:"latest_validator_performance" yaml:"latest_validator_performance,omitempty"`
 
 	R *stateR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L stateL  `boil:"-" json:"-" toml:"-" yaml:"-"`
 }
 
 var StateColumns = struct {
-	ID                 string
-	NetworkName        string
-	LowestBlockNumber  string
-	HighestBlockNumber string
+	ID                           string
+	NetworkName                  string
+	LowestBlockNumber            string
+	HighestBlockNumber           string
+	EarliestValidatorPerformance string
+	LatestValidatorPerformance   string
 }{
-	ID:                 "id",
-	NetworkName:        "network_name",
-	LowestBlockNumber:  "lowest_block_number",
-	HighestBlockNumber: "highest_block_number",
+	ID:                           "id",
+	NetworkName:                  "network_name",
+	LowestBlockNumber:            "lowest_block_number",
+	HighestBlockNumber:           "highest_block_number",
+	EarliestValidatorPerformance: "earliest_validator_performance",
+	LatestValidatorPerformance:   "latest_validator_performance",
 }
 
 var StateTableColumns = struct {
-	ID                 string
-	NetworkName        string
-	LowestBlockNumber  string
-	HighestBlockNumber string
+	ID                           string
+	NetworkName                  string
+	LowestBlockNumber            string
+	HighestBlockNumber           string
+	EarliestValidatorPerformance string
+	LatestValidatorPerformance   string
 }{
-	ID:                 "state.id",
-	NetworkName:        "state.network_name",
-	LowestBlockNumber:  "state.lowest_block_number",
-	HighestBlockNumber: "state.highest_block_number",
+	ID:                           "state.id",
+	NetworkName:                  "state.network_name",
+	LowestBlockNumber:            "state.lowest_block_number",
+	HighestBlockNumber:           "state.highest_block_number",
+	EarliestValidatorPerformance: "state.earliest_validator_performance",
+	LatestValidatorPerformance:   "state.latest_validator_performance",
 }
 
 // Generated where
 
+type whereHelpernull_Time struct{ field string }
+
+func (w whereHelpernull_Time) EQ(x null.Time) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, false, x)
+}
+func (w whereHelpernull_Time) NEQ(x null.Time) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, true, x)
+}
+func (w whereHelpernull_Time) LT(x null.Time) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LT, x)
+}
+func (w whereHelpernull_Time) LTE(x null.Time) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LTE, x)
+}
+func (w whereHelpernull_Time) GT(x null.Time) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GT, x)
+}
+func (w whereHelpernull_Time) GTE(x null.Time) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GTE, x)
+}
+
+func (w whereHelpernull_Time) IsNull() qm.QueryMod    { return qmhelper.WhereIsNull(w.field) }
+func (w whereHelpernull_Time) IsNotNull() qm.QueryMod { return qmhelper.WhereIsNotNull(w.field) }
+
 var StateWhere = struct {
-	ID                 whereHelperint
-	NetworkName        whereHelperstring
-	LowestBlockNumber  whereHelperint
-	HighestBlockNumber whereHelperint
+	ID                           whereHelperint
+	NetworkName                  whereHelperstring
+	LowestBlockNumber            whereHelperint
+	HighestBlockNumber           whereHelperint
+	EarliestValidatorPerformance whereHelpernull_Time
+	LatestValidatorPerformance   whereHelpernull_Time
 }{
-	ID:                 whereHelperint{field: "\"state\".\"id\""},
-	NetworkName:        whereHelperstring{field: "\"state\".\"network_name\""},
-	LowestBlockNumber:  whereHelperint{field: "\"state\".\"lowest_block_number\""},
-	HighestBlockNumber: whereHelperint{field: "\"state\".\"highest_block_number\""},
+	ID:                           whereHelperint{field: "\"state\".\"id\""},
+	NetworkName:                  whereHelperstring{field: "\"state\".\"network_name\""},
+	LowestBlockNumber:            whereHelperint{field: "\"state\".\"lowest_block_number\""},
+	HighestBlockNumber:           whereHelperint{field: "\"state\".\"highest_block_number\""},
+	EarliestValidatorPerformance: whereHelpernull_Time{field: "\"state\".\"earliest_validator_performance\""},
+	LatestValidatorPerformance:   whereHelpernull_Time{field: "\"state\".\"latest_validator_performance\""},
 }
 
 // StateRels is where relationship names are stored.
@@ -87,9 +126,9 @@ func (*stateR) NewStruct() *stateR {
 type stateL struct{}
 
 var (
-	stateAllColumns            = []string{"id", "network_name", "lowest_block_number", "highest_block_number"}
+	stateAllColumns            = []string{"id", "network_name", "lowest_block_number", "highest_block_number", "earliest_validator_performance", "latest_validator_performance"}
 	stateColumnsWithoutDefault = []string{"network_name", "lowest_block_number", "highest_block_number"}
-	stateColumnsWithDefault    = []string{"id"}
+	stateColumnsWithDefault    = []string{"id", "earliest_validator_performance", "latest_validator_performance"}
 	statePrimaryKeyColumns     = []string{"id"}
 	stateGeneratedColumns      = []string{}
 )

@@ -1,0 +1,58 @@
+tiers:
+  - max_participants: 2000
+    apr_boost: 0.5
+  - max_participants: 5000
+    apr_boost: 0.4
+  - max_participants: 10000
+    apr_boost: 0.3
+  - max_participants: 15000
+    apr_boost: 0.2
+  - max_participants: ~
+    apr_boost: 0.1
+
+rounds:
+  - period: 2023-07
+    eth_apr: 0.047
+    ssv_eth: 0.0088235294
+  - period: 2023-08
+    eth_apr: 0.044
+    ssv_eth: 0.0092352941
+  - period: 2023-09
+    eth_apr:
+    ssv_eth:
+  - period: 2023-10
+    eth_apr:
+    ssv_eth:
+  - period: 2023-11
+    eth_apr:
+    ssv_eth:
+  - period: 2023-12
+    eth_apr:
+    ssv_eth:
+  - period: 2024-01
+    eth_apr:
+    ssv_eth:
+  - period: 2024-02
+    eth_apr:
+    ssv_eth:
+  - period: 2024-03
+    eth_apr:
+    ssv_eth:
+  - period: 2024-04
+    eth_apr:
+    ssv_eth:
+  - period: 2024-05
+    eth_apr:
+    ssv_eth:
+  - period: 2024-06
+    eth_apr:
+    ssv_eth:
+  - period: 2024-07
+    eth_apr:
+    ssv_eth:
+  - period: 2024-08
+    eth_apr:
+    ssv_eth:
+  - period: 2024-09
+    ssv_eth:
+    eth_apr:

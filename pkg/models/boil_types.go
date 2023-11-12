@@ -51,30 +51,30 @@ func makeCacheKey(cols boil.Columns, nzDefaults []string) string {
 	return str
 }
 
-type Provider string
+type ProviderType string
 
-// Enum values for Provider
+// Enum values for ProviderType
 const (
-	ProviderE2m       Provider = "e2m"
-	ProviderBeaconcha Provider = "beaconcha"
+	ProviderTypeE2m       ProviderType = "e2m"
+	ProviderTypeBeaconcha ProviderType = "beaconcha"
 )
 
-func AllProvider() []Provider {
-	return []Provider{
-		ProviderE2m,
-		ProviderBeaconcha,
+func AllProviderType() []ProviderType {
+	return []ProviderType{
+		ProviderTypeE2m,
+		ProviderTypeBeaconcha,
 	}
 }
 
-func (e Provider) IsValid() error {
+func (e ProviderType) IsValid() error {
 	switch e {
-	case ProviderE2m, ProviderBeaconcha:
+	case ProviderTypeE2m, ProviderTypeBeaconcha:
 		return nil
 	default:
 		return errors.New("enum is not valid")
 	}
 }
 
-func (e Provider) String() string {
+func (e ProviderType) String() string {
 	return string(e)
 }

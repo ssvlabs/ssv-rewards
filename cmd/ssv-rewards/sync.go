@@ -15,12 +15,13 @@ import (
 	"github.com/attestantio/go-eth2-client/auto"
 	"github.com/rs/zerolog"
 
-	"github.com/bloxapp/ssv-rewards/beacon"
-	"github.com/bloxapp/ssv-rewards/models"
-	"github.com/bloxapp/ssv-rewards/sync"
-	"github.com/bloxapp/ssv-rewards/sync/performance"
-	"github.com/bloxapp/ssv-rewards/sync/performance/beaconcha"
-	"github.com/bloxapp/ssv-rewards/sync/performance/e2m"
+	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/rewards"
+	"github.com/bloxapp/ssv-rewards/pkg/sync"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/performance/beaconcha"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/performance/e2m"
 	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/bloxapp/ssv/eth/executionclient"
 	"github.com/bloxapp/ssv/networkconfig"
@@ -37,20 +38,30 @@ import (
 
 type SyncCmd struct {
 	DataDir                    string `env:"DATA_DIR"                      default:"./data"               help:"Path to the data directory."`
-	ExecutionEndpoint          string `env:"EXECUTION_ENDPOINT"                                           help:"RPC endpoint to an Ethereum execution node."                                       required:""`
-	ConsensusEndpoint          string `env:"CONSENSUS_ENDPOINT"                                           help:"HTTP endpoint to an Ethereum Beacon node API."                                     required:""`
-	E2MEndpoint                string `env:"E2M_ENDPOINT"                                                 help:"HTTP endpoint to an ethereum2-monitor API."                                        required:"" xor:"monitoring-endpoint" name:"e2m-endpoint"`
-	BeaconchaEndpoint          string `env:"BEACONCHA_ENDPOINT"            default:"https://beaconcha.in" help:"HTTP endpoint to a beaconcha.in API."                                              required:"" xor:"monitoring-endpoint"`
-	BeaconchaAPIKey            string `env:"BEACONCHA_API_KEY"                                            help:"API key for beaconcha.in API."                                                     required:""`
-	BeaconchaRequestsPerMinute int    `env:"BEACONCHA_REQUESTS_PER_MINUTE" default:"20"                   help:"Maximum number of requests per minute to beaconcha.in API."                        required:""`
+	ExecutionEndpoint          string `env:"EXECUTION_ENDPOINT"                                           help:"RPC endpoint to an Ethereum execution node."                                        required:""`
+	ConsensusEndpoint          string `env:"CONSENSUS_ENDPOINT"                                           help:"HTTP endpoint to an Ethereum Beacon node API."                                      required:""`
+	E2MEndpoint                string `env:"E2M_ENDPOINT"                                                 help:"HTTP endpoint to an ethereum2-monitor API."                                         required:"" xor:"monitoring-endpoint" name:"e2m-endpoint"`
+	BeaconchaEndpoint          string `env:"BEACONCHA_ENDPOINT"            default:"https://beaconcha.in" help:"HTTP endpoint to a beaconcha.in API."                                               required:"" xor:"monitoring-endpoint"`
+	BeaconchaAPIKey            string `env:"BEACONCHA_API_KEY"                                            help:"API key for beaconcha.in API."                                                      required:""`
+	BeaconchaRequestsPerMinute int    `env:"BEACONCHA_REQUESTS_PER_MINUTE" default:"20"                   help:"Maximum number of requests per minute to beaconcha.in API."                         required:""`
 	Network                    string `env:"NETWORK"                       default:"mainnet"              help:"SSV network name."`
-	ToBlock                    uint64 `env:"TO_BLOCK"                                                     help:"Execution block number to end at. Defaults to the highest finalized block number."`
+	HighestExecutionBlock      uint64 `env:"HIGHEST_EXECUTION_BLOCK"                                      help:"Execution block number to end syncing at. Defaults to the highest finalized block."`
 	Fresh                      bool   `env:"FRESH"                                                        help:"Delete all data and start from scratch."`
 	FreshSSV                   bool   `env:"FRESH_SSV"                                                    help:"Delete all SSV data and start from scratch."`
 }
 
 func (c *SyncCmd) Run(logger *zap.Logger, globals *Globals) error {
 	ctx := context.Background()
+
+	// Parse the rewards plan.
+	data, err := os.ReadFile("rewards.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read rewards.yaml: %w", err)
+	}
+	plan, err := rewards.ParseYAML(data)
+	if err != nil {
+		return fmt.Errorf("failed to parse rewards plan: %w", err)
+	}
 
 	// Get the SSV NetworkConfig.
 	network, err := networkconfig.GetNetworkConfigByName(c.Network)
@@ -62,7 +73,7 @@ func (c *SyncCmd) Run(logger *zap.Logger, globals *Globals) error {
 	// Connect to the PostgreSQL database.
 	db, err := sql.Open("postgres", globals.Postgres)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open database: %w", err)
 	}
 	logger.Info("Connected to PostgreSQL")
 
@@ -165,7 +176,7 @@ func (c *SyncCmd) Run(logger *zap.Logger, globals *Globals) error {
 
 	// Derive fromBlock and toBlock.
 	fromBlock := network.RegistrySyncOffset.Uint64()
-	toBlock := c.ToBlock
+	toBlock := c.HighestExecutionBlock
 
 	finalizedBlock, err := el.RPC().
 		BlockByNumber(ctx, new(big.Int).SetInt64(rpc.FinalizedBlockNumber.Int64()))
@@ -243,7 +254,7 @@ func (c *SyncCmd) Run(logger *zap.Logger, globals *Globals) error {
 		performanceProvider = beaconcha.New(
 			c.BeaconchaEndpoint,
 			c.BeaconchaAPIKey,
-			float64(c.BeaconchaRequestsPerMinute)*0.95,
+			float64(c.BeaconchaRequestsPerMinute)*0.95, // Safety margin.
 		)
 	default:
 		return fmt.Errorf("either e2m-endpoint or beaconcha-endpoint must be provided")
@@ -256,6 +267,8 @@ func (c *SyncCmd) Run(logger *zap.Logger, globals *Globals) error {
 		cl,
 		db,
 		performanceProvider,
+		plan.Rounds[0].Period.FirstDay(),
+		plan.Rounds[len(plan.Rounds)-1].Period.LastDay(),
 		toBlock,
 	)
 	if err != nil {

@@ -14,9 +14,9 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	"github.com/bloxapp/ssv-rewards/beacon"
-	"github.com/bloxapp/ssv-rewards/models"
-	"github.com/bloxapp/ssv-rewards/sync/performance"
+	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
 	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/schollz/progressbar/v3"
 	"github.com/volatiletech/null/v8"
@@ -33,16 +33,14 @@ func SyncValidatorPerformance(
 	cl eth2client.Service,
 	db *sql.DB,
 	provider performance.Provider,
-	toBlock uint64,
+	fromDay time.Time,
+	toDay time.Time,
+	highestBlockNumber uint64,
 ) error {
-	providerType := models.Provider(provider.Type())
+	providerType := models.ProviderType(provider.Type())
 	if err := providerType.IsValid(); err != nil {
 		return fmt.Errorf("invalid provider type (%q): %w", providerType, err)
 	}
-
-	// Determine the latest day that we can fetch for,
-	// performance data after that day is considered not available.
-	maximumDay := time.Now().UTC().AddDate(0, 0, -2).Truncate(24 * time.Hour)
 
 	// Fetch ValidatorEvents from the database to determine earliest and latest blocks
 	// with validator activity and active validators at each day.
@@ -57,39 +55,58 @@ func SyncValidatorPerformance(
 		return fmt.Errorf("failed to get validator events: %w", err)
 	}
 
-	// Determine the date ranges to fetch for.
-	var fromDay time.Time
+	// Don't undershoot the earliest block with validator activity.
+	var earliestActiveDay time.Time
 	for _, event := range validatorEvents {
 		if event.EventName == eventparser.ValidatorAdded {
-			earliestBlock, err := ethClient.
+			block, err := ethClient.
 				BlockByNumber(ctx, new(big.Int).SetUint64(uint64(event.BlockNumber)))
 			if err != nil {
 				return fmt.Errorf("failed to get earliest block time: %w", err)
 			}
-			fromDay = time.Unix(int64(earliestBlock.Time()), 0).UTC().Truncate(24 * time.Hour)
+			earliestActiveDay = time.Unix(int64(block.Time()), 0).UTC().Truncate(24 * time.Hour)
 			break
 		}
 	}
-	if fromDay.IsZero() {
-		return fmt.Errorf("failed to get earliest activity")
+	if earliestActiveDay.IsZero() {
+		return fmt.Errorf("failed to determine earliest active day")
 	}
-	latestBlock, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(uint64(toBlock)))
+	if fromDay.Before(earliestActiveDay) {
+		fromDay = earliestActiveDay
+	}
+
+	// Don't exceed the day before highestBlockNumber.
+	highestBlock, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(highestBlockNumber))
 	if err != nil {
 		return fmt.Errorf("failed to get latest block time: %w", err)
 	}
-	toDay := time.Unix(int64(latestBlock.Time()), 0).UTC().Truncate(24 * time.Hour)
-	if toDay.After(maximumDay) {
-		toDay = maximumDay
+	highestDay := time.Unix(int64(highestBlock.Time()), 0).
+		UTC().
+		Truncate(24*time.Hour).
+		AddDate(0, 0, -1)
+	if toDay.After(highestDay) {
+		toDay = highestDay
+	}
+
+	// Don't exceed the latest day with reliable performance data.
+	cutoffDay := time.Now().UTC().AddDate(0, 0, -2).Truncate(24 * time.Hour)
+	if toDay.After(cutoffDay) {
+		toDay = cutoffDay
 	}
 	if toDay.Before(fromDay) {
 		return fmt.Errorf("not enough days with activity (%s - %s)", fromDay, toDay)
 	}
 
+	// Set the state's earliest_validator_performance.
+	_, err = models.States().UpdateAll(ctx, db, models.M{"earliest_validator_performance": fromDay})
+	if err != nil {
+		return fmt.Errorf("failed to update state: %w", err)
+	}
+
 	// For each day since the earliest block, fetch validator performance within the day's epoch range.
+	logger.Info("Fetching validator performance", zap.Time("from", fromDay), zap.Time("to", toDay))
 	bar := progressbar.New(int(toDay.Sub(fromDay).Hours()/24) + 1)
-	bar.Describe("Fetching validator performance")
 	defer bar.Clear()
-	day := fromDay
 	fetchedDays := 0
 	totalDays := 0
 
@@ -98,6 +115,7 @@ func SyncValidatorPerformance(
 		OwnerAddress string
 	}
 	activeValidators := map[phase0.BLSPubKey]activeValidator{}
+	validatorEventsPos := 0
 
 	// Get validators known in the Beacon chain.
 	beaconValidators, err := models.Validators(
@@ -115,8 +133,8 @@ func SyncValidatorPerformance(
 		validatorsByPubKey[pk] = validator
 	}
 
-	for day.Before(toDay) || day.Equal(toDay) {
-		bar.Describe(fmt.Sprintf("Fetching validator performance for %s", day.Format("2006-01-02")))
+	for day := fromDay; day.Before(toDay) || day.Equal(toDay); day = day.AddDate(0, 0, 1) {
+		bar.Describe(day.Format("2006-01-02"))
 		totalDays++
 
 		fromEpoch := phase0.Epoch(
@@ -138,23 +156,23 @@ func SyncValidatorPerformance(
 		}
 
 		// Keep track of active validators in this day.
-		fromSlot := spec.FirstSlot(fromEpoch)
-		toSlot := spec.LastSlot(toEpoch)
-		for _, event := range validatorEvents {
-			if event.Slot >= int(fromSlot) && event.Slot <= int(toSlot) {
-				pk, err := decodeValidatorPublicKey(event.PublicKey)
-				if err != nil {
-					return fmt.Errorf("failed to decode validator public key: %w", err)
+		for i, event := range validatorEvents[validatorEventsPos:] {
+			validatorEventsPos = i
+			if phase0.Slot(event.Slot) > spec.LastSlot(toEpoch) {
+				break
+			}
+			pk, err := decodeValidatorPublicKey(event.PublicKey)
+			if err != nil {
+				return fmt.Errorf("failed to decode validator public key: %w", err)
+			}
+			epoch := spec.EpochAt(phase0.Slot(event.Slot))
+			if event.Activated {
+				activeValidators[pk] = activeValidator{
+					Since:        epoch,
+					OwnerAddress: event.OwnerAddress,
 				}
-				epoch := spec.EpochAt(phase0.Slot(event.Slot))
-				if event.Activated {
-					activeValidators[pk] = activeValidator{
-						Since:        epoch,
-						OwnerAddress: event.OwnerAddress,
-					}
-				} else {
-					delete(activeValidators, pk)
-				}
+			} else {
+				delete(activeValidators, pk)
 			}
 		}
 
@@ -171,7 +189,6 @@ func SyncValidatorPerformance(
 			if existing.FromEpoch != int(fromEpoch) || existing.ToEpoch != int(toEpoch) {
 				return fmt.Errorf("validator performance mismatch: %d-%d != %d-%d", existing.FromEpoch, existing.ToEpoch, fromEpoch, toEpoch)
 			}
-			day = day.AddDate(0, 0, 1)
 			bar.Add(1)
 			continue
 		}
@@ -184,13 +201,13 @@ func SyncValidatorPerformance(
 		defer tx.Rollback()
 		for pubKey, activeValidator := range activeValidators {
 			performance := models.ValidatorPerformance{
-				Provider:       providerType,
-				Day:            day,
-				FromEpoch:      int(fromEpoch),
-				ToEpoch:        int(toEpoch),
-				OwnerAddress:   activeValidator.OwnerAddress,
-				PublicKey:      hex.EncodeToString(pubKey[:]),
-				ActiveWholeDay: activeValidator.Since < fromEpoch,
+				Provider:        providerType,
+				Day:             day,
+				FromEpoch:       int(fromEpoch),
+				ToEpoch:         int(toEpoch),
+				OwnerAddress:    activeValidator.OwnerAddress,
+				PublicKey:       hex.EncodeToString(pubKey[:]),
+				SolventWholeDay: activeValidator.Since < fromEpoch,
 			}
 			if validator, ok := validatorsByPubKey[pubKey]; ok {
 				performance.Index = null.IntFrom(validator.Index.Int)
@@ -250,10 +267,16 @@ func SyncValidatorPerformance(
 				return fmt.Errorf("failed to insert validator performance: %w", err)
 			}
 		}
+
+		// Set the state's latest_validator_performance.
+		_, err = models.States().UpdateAll(ctx, db, models.M{"latest_validator_performance": day})
+		if err != nil {
+			return fmt.Errorf("failed to update state: %w", err)
+		}
+
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
-		day = day.AddDate(0, 0, 1)
 		bar.Add(1)
 		fetchedDays++
 	}

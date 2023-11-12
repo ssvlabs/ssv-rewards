@@ -825,7 +825,7 @@ func (o *Validator) AddPublicKeyValidatorPerformances(ctx context.Context, exec 
 				strmangle.SetParamNames("\"", "\"", 1, []string{"public_key"}),
 				strmangle.WhereClause("\"", "\"", 2, validatorPerformancePrimaryKeyColumns),
 			)
-			values := []interface{}{o.PublicKey, rel.Day, rel.PublicKey}
+			values := []interface{}{o.PublicKey, rel.Provider, rel.Day, rel.PublicKey}
 
 			if boil.IsDebug(ctx) {
 				writer := boil.DebugWriterFrom(ctx)

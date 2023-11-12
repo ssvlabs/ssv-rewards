@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/bloxapp/ssv-rewards/beacon"
-	"github.com/bloxapp/ssv-rewards/sync/performance"
+	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
 	"github.com/carlmjohnson/requests"
 	"golang.org/x/time/rate"
 )
@@ -126,17 +126,17 @@ func (m *Client) ValidatorPerformance(
 		}
 
 		performance := &performance.ValidatorPerformance{
-			Attestations: performance.DutyStat{
+			Attestations: performance.DutyPerformance{
 				Assigned: int16(activeEpochs),
 				Executed: int16(activeEpochs) - int16(d.MissedAttestations),
 				Missed:   int16(d.MissedAttestations),
 			},
-			Proposals: performance.DutyStat{
+			Proposals: performance.DutyPerformance{
 				Assigned: int16(d.ProposedBlocks + d.MissedBlocks),
 				Executed: int16(d.ProposedBlocks),
 				Missed:   int16(d.MissedBlocks),
 			},
-			SyncCommittee: performance.DutyStat{
+			SyncCommittee: performance.DutyPerformance{
 				Assigned: int16(d.ParticipatedSync + d.MissedSync),
 				Executed: int16(d.ParticipatedSync),
 				Missed:   int16(d.MissedSync),

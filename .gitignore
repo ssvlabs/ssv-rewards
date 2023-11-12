@@ -1,5 +1,6 @@
 /pgdata
 /data
 /rewards
+/rewards.yaml
 .env
 .DS_Store

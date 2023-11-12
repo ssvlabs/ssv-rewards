@@ -9,8 +9,8 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/bloxapp/ssv-rewards/beacon"
-	"github.com/bloxapp/ssv-rewards/models"
+	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/models"
 	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/bloxapp/ssv/eth/executionclient"
 	"github.com/ethereum/go-ethereum/accounts/abi"

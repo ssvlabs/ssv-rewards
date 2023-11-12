@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS state (
 	network_name TEXT NOT NULL,
 	lowest_block_number INTEGER NOT NULL,
 	highest_block_number INTEGER NOT NULL,
-	ealiest_validator_performance DATE,
+	earliest_validator_performance DATE,
 	latest_validator_performance DATE
 );
 
@@ -56,19 +56,19 @@ CREATE TABLE IF NOT EXISTS validator_events (
 CREATE INDEX IF NOT EXISTS idx_validator_events_public_key ON validator_events(public_key);
 
 DO $$ BEGIN
-    CREATE TYPE provider AS ENUM ('e2m', 'beaconcha');
+    CREATE TYPE provider_type AS ENUM ('e2m', 'beaconcha');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
 CREATE TABLE IF NOT EXISTS validator_performances (
-	provider provider NOT NULL,
+	provider provider_type NOT NULL,
 	day DATE NOT NULL,
 	from_epoch INT NOT NULL,
 	to_epoch INT NOT NULL,
 	owner_address TEXT NOT NULL,
 	public_key TEXT NOT NULL REFERENCES validators(public_key),
-	active_whole_day BOOLEAN NOT NULL,
+	solvent_whole_day BOOLEAN NOT NULL,
 	index INT,
 	start_beacon_status TEXT,
 	end_beacon_status TEXT,
@@ -91,4 +91,4 @@ CREATE TABLE IF NOT EXISTS validator_performances (
 );
 
 
-CREATE INDEX IF NOT EXISTS idx_validator_performances_day ON validator_performances(provider, day, owner_address, public_key, active_whole_day);
+CREATE INDEX IF NOT EXISTS idx_validator_performances ON validator_performances(provider, day, owner_address, public_key, solvent_whole_day);
