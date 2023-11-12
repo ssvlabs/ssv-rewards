@@ -10,6 +10,10 @@ import (
 
 func TestParseYAML(t *testing.T) {
 	input := `
+criteria:
+  min_attestations_per_day: 202
+  min_decideds_per_day: 22
+
 tiers:
   - max_participants: 2000
     apr_boost: 0.5
@@ -21,6 +25,7 @@ tiers:
     apr_boost: 0.2
   - max_participants: ~
     apr_boost: 0.1
+
 rounds:
   - period: 2023-07
     eth_apr: 0.047
@@ -30,6 +35,10 @@ rounds:
     ssv_eth:
 `
 	expected := Plan{
+		Criteria: Criteria{
+			MinAttestationsPerDay: 202,
+			MinDecidedsPerDay:     22,
+		},
 		Tiers: []Tier{
 			{MaxParticipants: 2000, APRBoost: 0.5},
 			{MaxParticipants: 5000, APRBoost: 0.4},

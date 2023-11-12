@@ -3,7 +3,7 @@ DROP FUNCTION IF EXISTS active_days_by_owner(provider_type, INTEGER, DATE, DATE)
 DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, DATE, DATE);
 DROP FUNCTION IF EXISTS inactive_days_by_validator(provider_type, INTEGER, DATE, DATE);
 
-CREATE OR REPLACE FUNCTION active_days_by_validator(_provider provider_type, min_daily_attestations INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
+CREATE OR REPLACE FUNCTION active_days_by_validator(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
 RETURNS TABLE (
     owner_address TEXT,
     public_key TEXT,
@@ -22,13 +22,14 @@ BEGIN
     FROM validator_performances AS vp
     WHERE provider = _provider
         AND solvent_whole_day
-        AND attestations_executed >= min_daily_attestations
+        AND attestations_executed >= min_attestations
+        AND decideds >= min_decideds
         AND date_trunc('month', day) BETWEEN date_trunc('month', from_period) AND date_trunc('month', to_period)
     GROUP BY vp.owner_address, vp.public_key;
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION active_days_by_owner(_provider provider_type, min_daily_attestations INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
+CREATE OR REPLACE FUNCTION active_days_by_owner(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
 RETURNS TABLE (
     owner_address TEXT,
     validators BIGINT,
@@ -40,12 +41,12 @@ BEGIN
         dr.owner_address,
         COUNT(dr.public_key) AS number_of_validators,
         SUM(dr.active_days)::BIGINT AS active_days
-    FROM active_days_by_validator(_provider, min_daily_attestations, from_period, to_period) dr
+    FROM active_days_by_validator(_provider, min_attestations, min_decideds, from_period, to_period) dr
     GROUP BY dr.owner_address;
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION active_days_by_recipient(_provider provider_type, min_daily_attestations INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
+CREATE OR REPLACE FUNCTION active_days_by_recipient(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
 RETURNS TABLE (
     recipient_address TEXT,
     is_deployer BOOLEAN,
@@ -59,13 +60,13 @@ BEGIN
         BOOL_OR(d.deployer_address IS NOT NULL) AS is_deployer,
         SUM(ado.validators)::BIGINT AS validators,
         SUM(ado.active_days)::BIGINT AS active_days
-    FROM active_days_by_owner(_provider, min_daily_attestations, from_period, to_period) ado
+    FROM active_days_by_owner(_provider, min_attestations, min_decideds, from_period, to_period) ado
     LEFT JOIN deployers d ON ado.owner_address = d.owner_address
     GROUP BY COALESCE(d.deployer_address, ado.owner_address);
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION inactive_days_by_validator(_provider provider_type, min_daily_attestations INTEGER, from_period DATE, to_period DATE default NULL)
+CREATE OR REPLACE FUNCTION inactive_days_by_validator(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE default NULL)
 RETURNS TABLE (
 	day DATE,
 	from_epoch INTEGER,
@@ -99,13 +100,14 @@ BEGIN
         ) AS events,
         CASE
             WHEN NOT vp.solvent_whole_day THEN 'not_registered_whole_day'
-            WHEN vp.attestations_executed < min_daily_attestations THEN 'not_enough_attestations'
+            WHEN vp.attestations_executed < min_attestations THEN 'not_enough_attestations'
+            WHEN vp.decideds < min_decideds THEN 'not_enough_decideds'
             ELSE 'unknown'
         END AS exclusion_reason
     FROM validator_performances AS vp
     WHERE provider = _provider
         AND date_trunc('month', vp.day) BETWEEN date_trunc('month', from_period) AND date_trunc('month', to_period)
-        AND (NOT solvent_whole_day OR attestations_executed < min_daily_attestations);
+        AND (NOT solvent_whole_day OR attestations_executed < min_attestations OR decideds < min_decideds);
 END;
 $$ LANGUAGE plpgsql STABLE;
 

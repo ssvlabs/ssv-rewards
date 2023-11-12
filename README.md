@@ -23,6 +23,9 @@ CONSENSUS_ENDPOINT=http://beacon-node:5052
 # JSON-RPC API endpoint of the execution node
 EXECUTION_ENDPOINT=http://excution-node:8545
 
+# SSV API endpoint
+SSV_API_ENDPOINT=https://api.ssv.network
+
 # Beaconcha.in API
 BEACONCHA_ENDPOINT=https://beaconcha.in
 BEACONCHA_API_KEY=<your-api-key>
@@ -34,6 +37,10 @@ BEACONCHA_API_KEY=<your-api-key>
 Edit `rewards.yaml` to match [the specifications](https://docs.google.com/document/d/1pcr8QVcq9eZfiOJGrm5OsE9JAqdQy1F8Svv1xgecjNY):
 
 ```yaml
+criteria:
+  min_attestations_per_day: 202
+  min_decideds_per_day: 22
+
 tiers:
   # Tiers apply to rounds below the participation threshold.
   - max_participants: 2000 # Up to 2,000 validators

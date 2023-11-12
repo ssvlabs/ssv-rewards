@@ -16,8 +16,9 @@ const (
 )
 
 type Plan struct {
-	Tiers  Tiers  `yaml:"tiers"`
-	Rounds Rounds `yaml:"rounds"`
+	Criteria Criteria `yaml:"criteria"`
+	Tiers    Tiers    `yaml:"tiers"`
+	Rounds   Rounds   `yaml:"rounds"`
 }
 
 // ParseYAML parses the given YAML document into a Plan.
@@ -101,6 +102,11 @@ func (p *Plan) Tier(participants int) (*Tier, error) {
 		}
 	}
 	return nil, errors.New("participants exceeds max tier")
+}
+
+type Criteria struct {
+	MinAttestationsPerDay int `yaml:"min_attestations_per_day"`
+	MinDecidedsPerDay     int `yaml:"min_decideds_per_day"`
 }
 
 type Round struct {

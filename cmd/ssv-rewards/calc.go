@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/gocarina/gocsv"
@@ -22,11 +23,11 @@ import (
 )
 
 type CalcCmd struct {
-	Dir                      string `default:"./rewards" help:"Path to save the rewards to,"`
-	PerformanceProvider      string `default:"beaconcha" help:"Performance provider to use."                                       enum:"beaconcha,e2m"`
-	MinimumDailyAttestations int    `default:"202"       help:"Minimum attestations in a day to be considered active."`
+	Dir                 string `default:"./rewards" help:"Path to save the rewards to,"`
+	PerformanceProvider string `default:"beaconcha" help:"Performance provider to use."                                       enum:"beaconcha,e2m"`
 
-	db *sql.DB
+	plan *rewards.Plan
+	db   *sql.DB
 }
 
 func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
@@ -37,7 +38,7 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 	if err != nil {
 		return fmt.Errorf("failed to read rewards.yaml: %w", err)
 	}
-	plan, err := rewards.ParseYAML(data)
+	c.plan, err = rewards.ParseYAML(data)
 	if err != nil {
 		return fmt.Errorf("failed to parse rewards plan: %w", err)
 	}
@@ -60,14 +61,14 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 	if state.EarliestValidatorPerformance.Time.After(state.LatestValidatorPerformance.Time) {
 		return fmt.Errorf("invalid state: earliest validator performance is after latest validator performance")
 	}
-	if state.EarliestValidatorPerformance.Time.After(plan.Rounds[0].Period.FirstDay()) {
+	if state.EarliestValidatorPerformance.Time.After(c.plan.Rounds[0].Period.FirstDay()) {
 		return fmt.Errorf("validator performance data is not available for the first round")
 	}
 	latestValidatorPerformancePeriod := rewards.PeriodAt(state.LatestValidatorPerformance.Time)
 
 	// Select the rounds with available performance data.
 	var completeRounds []rewards.Round
-	for _, round := range plan.Rounds {
+	for _, round := range c.plan.Rounds {
 		if round.ETHAPR > 0 && round.SSVETH > 0 &&
 			round.Period.LastDay().Before(latestValidatorPerformancePeriod.FirstDay()) {
 			completeRounds = append(completeRounds, round)
@@ -97,11 +98,11 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 		}
 
 		// Calculate appropriate tier and rewards.
-		tier, err := plan.Tier(len(validatorParticipations))
+		tier, err := c.plan.Tier(len(validatorParticipations))
 		if err != nil {
 			return fmt.Errorf("failed to get tier: %w", err)
 		}
-		dailyReward, monthlyReward, annualReward, err := plan.ValidatorRewards(round.Period, len(validatorParticipations))
+		dailyReward, monthlyReward, annualReward, err := c.plan.ValidatorRewards(round.Period, len(validatorParticipations))
 		if err != nil {
 			return fmt.Errorf("failed to get reward: %w", err)
 		}
@@ -223,6 +224,15 @@ func (c *CalcCmd) Run(logger *zap.Logger, globals *Globals) error {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
 	}
 
+	// Export exclusions.
+	exclusions, err := c.exclusions(ctx, completeRounds[0].Period, completeRounds[len(completeRounds)-1].Period)
+	if err != nil {
+		return fmt.Errorf("failed to get exclusions: %w", err)
+	}
+	if err := exportCSV(exclusions, filepath.Join(c.Dir, "exclusions.csv")); err != nil {
+		return fmt.Errorf("failed to export exclusions: %w", err)
+	}
+
 	return nil
 }
 
@@ -244,8 +254,8 @@ func (c *CalcCmd) validatorParticipations(
 ) ([]*ValidatorParticipation, error) {
 	var rewards []*ValidatorParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_validator($1, $2, $3)",
-		c.PerformanceProvider, c.MinimumDailyAttestations, time.Time(period),
+		"SELECT * FROM active_days_by_validator($1, $2, $3, $4)",
+		c.PerformanceProvider, c.plan.Criteria.MinAttestationsPerDay, c.plan.Criteria.MinDecidedsPerDay, time.Time(period),
 	).Bind(ctx, c.db, &rewards)
 }
 
@@ -267,8 +277,8 @@ func (c *CalcCmd) ownerParticipations(
 ) ([]*OwnerParticipation, error) {
 	var rewards []*OwnerParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_owner($1, $2, $3)",
-		c.PerformanceProvider, c.MinimumDailyAttestations, time.Time(period),
+		"SELECT * FROM active_days_by_owner($1, $2, $3, $4)",
+		c.PerformanceProvider, c.plan.Criteria.MinAttestationsPerDay, c.plan.Criteria.MinDecidedsPerDay, time.Time(period),
 	).Bind(ctx, c.db, &rewards)
 }
 
@@ -285,9 +295,32 @@ func (c *CalcCmd) recipientParticipations(
 ) ([]*RecipientParticipation, error) {
 	var rewards []*RecipientParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_recipient($1, $2, $3)",
-		c.PerformanceProvider, c.MinimumDailyAttestations, time.Time(period),
+		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4)",
+		c.PerformanceProvider, c.plan.Criteria.MinAttestationsPerDay, c.plan.Criteria.MinDecidedsPerDay, time.Time(period),
 	).Bind(ctx, c.db, &rewards)
+}
+
+type Exclusion struct {
+	Day               time.Time
+	FromEpoch         phase0.Epoch
+	ToEpoch           phase0.Epoch
+	PublicKey         string
+	StartBeaconStatus sql.NullString
+	EndBeaconStatus   sql.NullString
+	Events            string
+	ExclusionReason   string
+}
+
+func (c *CalcCmd) exclusions(
+	ctx context.Context,
+	fromPeriod rewards.Period,
+	toPeriod rewards.Period,
+) ([]*Exclusion, error) {
+	var exclusions []*Exclusion
+	return exclusions, queries.Raw(
+		"SELECT * FROM inactive_days_by_validator($1, $2, $3, $4, $5)",
+		c.PerformanceProvider, c.plan.Criteria.MinAttestationsPerDay, c.plan.Criteria.MinDecidedsPerDay, time.Time(fromPeriod), time.Time(toPeriod),
+	).Bind(ctx, c.db, &exclusions)
 }
 
 func exportCSV(data any, fileName string) error {
