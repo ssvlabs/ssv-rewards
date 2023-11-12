@@ -8,6 +8,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
+	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/joho/godotenv"
 	"github.com/mattn/go-colorable"
 	"go.uber.org/zap"
@@ -17,6 +18,7 @@ import (
 type Globals struct {
 	LogLevel string `env:"LOG_LEVEL" enum:"debug,info,warn,error" default:"info"                                                            help:"Log level."`
 	Postgres string `env:"POSTGRES"                               default:"postgres://user:1234@localhost:5432/ssv-rewards?sslmode=disable" help:"PostgreSQL connection string."`
+	Network  string `env:"NETWORK"                                default:"mainnet"                                                         help:"SSV network name."`
 }
 
 type CLI struct {
@@ -55,6 +57,12 @@ func main() {
 		logLevel,
 	))
 
+	// Get the SSV NetworkConfig.
+	network, err := networkconfig.GetNetworkConfigByName(cli.Globals.Network)
+	if err != nil {
+		logger.Fatal("failed to get network config", zap.Error(err))
+	}
+
 	// Parse the rewards plan.
 	data, err := os.ReadFile("rewards.yaml")
 	if err != nil {
@@ -73,6 +81,6 @@ func main() {
 	logger.Info("Connected to PostgreSQL")
 
 	// Run the CLI.
-	err = ctx.Run(logger, db, plan)
+	err = ctx.Run(logger, db, network, plan)
 	ctx.FatalIfErrorf(err)
 }

@@ -37,7 +37,6 @@ import (
 )
 
 type SyncCmd struct {
-	Network                    string `env:"NETWORK"                       default:"mainnet"              help:"SSV network name."`
 	DataDir                    string `env:"DATA_DIR"                      default:"./data"               help:"Path to the data directory."`
 	ExecutionEndpoint          string `env:"EXECUTION_ENDPOINT"                                           help:"RPC endpoint to an Ethereum execution node."                                        required:""`
 	ConsensusEndpoint          string `env:"CONSENSUS_ENDPOINT"                                           help:"HTTP endpoint to an Ethereum Beacon node API."                                      required:""`
@@ -51,15 +50,20 @@ type SyncCmd struct {
 	FreshSSV                   bool   `env:"FRESH_SSV"                                                    help:"Delete all SSV data and start from scratch."`
 }
 
-func (c *SyncCmd) Run(logger *zap.Logger, db *sql.DB, plan *rewards.Plan) error {
+func (c *SyncCmd) Run(
+	logger *zap.Logger,
+	db *sql.DB,
+	network networkconfig.NetworkConfig,
+	plan *rewards.Plan,
+) error {
 	ctx := context.Background()
 
-	// Get the SSV NetworkConfig.
-	network, err := networkconfig.GetNetworkConfigByName(c.Network)
-	if err != nil {
-		logger.Fatal("failed to get network config", zap.Error(err))
-	}
-	logger.Info("Starting ssv-rewards", zap.String("network", network.Name))
+	dataDir := filepath.Join(c.DataDir, network.Name)
+	logger.Info(
+		"Starting ssv-rewards",
+		zap.String("network", network.Name),
+		zap.String("data_dir", dataDir),
+	)
 
 	// Start from scratch, if requested.
 	if c.Fresh {
@@ -81,18 +85,9 @@ func (c *SyncCmd) Run(logger *zap.Logger, db *sql.DB, plan *rewards.Plan) error 
 	logger.Info("Applied PostgreSQL schema")
 
 	if c.FreshSSV || c.Fresh {
-		// Empty the DataDir.
-		files, err := os.ReadDir(c.DataDir)
-		switch {
-		case os.IsNotExist(err):
-		case err != nil:
-			return fmt.Errorf("failed to read data directory: %w", err)
-		default:
-			for _, file := range files {
-				if err := os.RemoveAll(filepath.Join(c.DataDir, file.Name())); err != nil {
-					return fmt.Errorf("failed to remove %q: %w", file.Name(), err)
-				}
-			}
+		// Empty the dataDir.
+		if err := os.RemoveAll(dataDir); err != nil {
+			return fmt.Errorf("failed to remove data dir: %w", err)
 		}
 
 		// Truncate SSV-related tables.
@@ -110,7 +105,7 @@ func (c *SyncCmd) Run(logger *zap.Logger, db *sql.DB, plan *rewards.Plan) error 
 	// Open SSV DB.
 	ssvDB, err := kv.New(logger, basedb.Options{
 		Ctx:  ctx,
-		Path: filepath.Join(c.DataDir, "ssv-node-storage"),
+		Path: filepath.Join(dataDir, "ssv-node-storage"),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to open db: %w", err)
@@ -191,7 +186,7 @@ func (c *SyncCmd) Run(logger *zap.Logger, db *sql.DB, plan *rewards.Plan) error 
 		}
 	} else {
 		if state.NetworkName != network.Name {
-			return fmt.Errorf("network name mismatch: %s != %s", state.NetworkName, network.Name)
+			return fmt.Errorf("database is already synced with %s, not %s", state.NetworkName, network.Name)
 		}
 		if state.LowestBlockNumber != int(fromBlock) {
 			return fmt.Errorf("lowest block number mismatch: %d != %d", state.LowestBlockNumber, fromBlock)

@@ -16,6 +16,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
+	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/gocarina/gocsv"
 	"github.com/volatiletech/sqlboiler/v4/queries"
 	"go.uber.org/zap"
@@ -30,9 +31,19 @@ type CalcCmd struct {
 	db   *sql.DB
 }
 
-func (c *CalcCmd) Run(logger *zap.Logger, db *sql.DB, plan *rewards.Plan) error {
+func (c *CalcCmd) Run(logger *zap.Logger, db *sql.DB, network networkconfig.NetworkConfig, plan *rewards.Plan) error {
 	c.db = db
 	ctx := context.Background()
+
+	// Create or replace stored procedures.
+	rewardsSQL, err := os.ReadFile("rewards.sql")
+	if err != nil {
+		return fmt.Errorf("failed to read rewards.sql: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, string(rewardsSQL)); err != nil {
+		return fmt.Errorf("failed to execute rewards.sql: %w", err)
+	}
+	logger.Info("Applied stored procedures")
 
 	// Parse the rewards plan.
 	data, err := os.ReadFile("rewards.yaml")
@@ -44,14 +55,18 @@ func (c *CalcCmd) Run(logger *zap.Logger, db *sql.DB, plan *rewards.Plan) error 
 		return fmt.Errorf("failed to parse rewards plan: %w", err)
 	}
 
-	// Delete the existing rewards directory.
-	switch _, err := os.Stat(c.Dir); {
+	// Empty the existing rewards directory.
+	if err := os.Mkdir(c.Dir, 0755); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("failed to create %q: %w", c.Dir, err)
+	}
+	dir := filepath.Join(c.Dir, network.Name)
+	switch _, err := os.Stat(dir); {
 	case os.IsNotExist(err):
 	case err != nil:
-		return fmt.Errorf("failed to stat %q: %w", c.Dir, err)
+		return fmt.Errorf("failed to stat %q: %w", dir, err)
 	default:
-		if err := os.RemoveAll(c.Dir); err != nil {
-			return fmt.Errorf("failed to remove %q: %w", c.Dir, err)
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("failed to remove %q: %w", dir, err)
 		}
 	}
 
@@ -71,7 +86,7 @@ func (c *CalcCmd) Run(logger *zap.Logger, db *sql.DB, plan *rewards.Plan) error 
 	}
 
 	// Move the temporary directory to the rewards directory.
-	if err := os.Rename(tmpDir, c.Dir); err != nil {
+	if err := os.Rename(tmpDir, dir); err != nil {
 		return fmt.Errorf("failed to move temporary directory: %w", err)
 	}
 

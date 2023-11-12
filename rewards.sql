@@ -110,5 +110,3 @@ BEGIN
         AND (NOT solvent_whole_day OR attestations_executed < min_attestations OR decideds < min_decideds);
 END;
 $$ LANGUAGE plpgsql STABLE;
-
-select * from active_days_by_owner('beaconcha', 202, '2023-07-01', '2023-10-01');
