@@ -51,7 +51,7 @@ rounds:
 			{Period: NewPeriod(2023, time.August)},
 		},
 	}
-	rewardPlan, err := ParseYAML([]byte(input))
+	rewardPlan, err := ParsePlan([]byte(input))
 	require.NoError(t, err)
 	require.NotNil(t, rewardPlan)
 	require.Equal(t, expected, *rewardPlan)

@@ -68,7 +68,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("failed to read rewards.yaml", zap.Error(err))
 	}
-	plan, err := rewards.ParseYAML(data)
+	plan, err := rewards.ParsePlan(data)
 	if err != nil {
 		logger.Fatal("failed to parse rewards plan", zap.Error(err))
 	}

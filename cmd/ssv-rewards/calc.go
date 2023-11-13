@@ -55,7 +55,7 @@ func (c *CalcCmd) Run(
 	if err != nil {
 		return fmt.Errorf("failed to read rewards.yaml: %w", err)
 	}
-	c.plan, err = rewards.ParseYAML(data)
+	c.plan, err = rewards.ParsePlan(data)
 	if err != nil {
 		return fmt.Errorf("failed to parse rewards plan: %w", err)
 	}
@@ -250,7 +250,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		// Export cumulative rewards.
 		totalRewards := map[string]*big.Int{}
 		for _, participation := range totalByRecipient {
-			totalRewards[participation.RecipientAddress], _ = new(big.Float).Mul(
+			totalRewards["0x"+participation.RecipientAddress], _ = new(big.Float).Mul(
 				big.NewFloat(participation.Reward),
 				big.NewFloat(math.Pow10(18)),
 			).Int(nil)

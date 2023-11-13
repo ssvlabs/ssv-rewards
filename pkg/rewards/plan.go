@@ -20,8 +20,8 @@ type Plan struct {
 	Rounds   Rounds   `yaml:"rounds"`
 }
 
-// ParseYAML parses the given YAML document into a Plan.
-func ParseYAML(data []byte) (*Plan, error) {
+// ParsePlan parses the given YAML document into a Plan.
+func ParsePlan(data []byte) (*Plan, error) {
 	var plan Plan
 	if err := yaml.Unmarshal(data, &plan); err != nil {
 		return nil, err
