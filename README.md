@@ -89,16 +89,16 @@ This produces the following documents under the `./rewards` directory:
 
 ```bash
 📂 rewards
-├── 📄 by-owner.csv            # Reward per round for each owner
-├── 📄 by-validator.csv        # Reward per round for each validator
-├── 📄 by-recipient.csv        # Reward per round for each recipient
+├── 📄 by-owner.csv            # Reward per round for each owner for each round
+├── 📄 by-validator.csv        # Reward per round for each validator for each round
+├── 📄 by-recipient.csv        # Reward per round for each recipient for each round
 ├── 📄 total-by-owner.csv      # Total reward for each owner
 ├── 📄 total-by-validator.csv  # Total reward for each validator
 └── 📂 <year>-<month>
-    ├── 📄 by-owner.csv        # Total reward for each owner for this month
-    ├── 📄 by-validator.csv    # Total reward for each validator for this month
-    ├── 📄 by-recipient.csv    # Total reward for each recipient for this month
-    └── 📄 cumulative.json     # Cumulative reward for each owner until and including this month
+    ├── 📄 by-owner.csv        # Total reward for each owner for that round
+    ├── 📄 by-validator.csv    # Total reward for each validator for that round
+    ├── 📄 by-recipient.csv    # Total reward for each recipient for that round
+    └── 📄 cumulative.json     # Cumulative reward for each owner until and including that round
 ```
 
 - `recipient` is the address that eventually receives the reward, which is either the owner address, or if the owner is a contract, then the deployer address of the contract.
