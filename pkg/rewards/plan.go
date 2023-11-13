@@ -3,7 +3,6 @@ package rewards
 import (
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"time"
 
@@ -27,12 +26,6 @@ func ParseYAML(data []byte) (*Plan, error) {
 	if err := yaml.Unmarshal(data, &plan); err != nil {
 		return nil, err
 	}
-	for i := range plan.Tiers {
-		if plan.Tiers[i].MaxParticipants == 0 {
-			plan.Tiers[i].MaxParticipants = math.MaxInt
-			break
-		}
-	}
 	if err := plan.validate(); err != nil {
 		return nil, err
 	}
@@ -47,13 +40,13 @@ func (r *Plan) validate() error {
 	if !sort.IsSorted(r.Tiers) {
 		return errors.New("tiers are not sorted by max participants")
 	}
+	if r.Tiers[0].MaxParticipants == 0 {
+		return errors.New("max participants must be positive")
+	}
 	for i := 1; i < len(r.Tiers); i++ {
 		if r.Tiers[i-1].MaxParticipants == r.Tiers[i].MaxParticipants {
 			return fmt.Errorf("duplicate tier: %d", r.Tiers[i].MaxParticipants)
 		}
-	}
-	if r.Tiers[len(r.Tiers)-1].MaxParticipants != math.MaxInt {
-		return errors.New("last tier must not limit participants")
 	}
 
 	// Rounds.
@@ -104,7 +97,7 @@ func (p *Plan) Tier(participants int) (*Tier, error) {
 			return &tier, nil
 		}
 	}
-	return nil, errors.New("participants exceeds max tier")
+	return nil, errors.New("participants exceed highest tier")
 }
 
 type Criteria struct {

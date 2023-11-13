@@ -49,7 +49,7 @@ tiers:
   - max_participants: 2000 # Up to 2,000 validators
     apr_boost: 0.5 # Fraction of ETH APR to reward in SSV tokens
   # ...
-  - max_participants: ~ # Limitless
+  - max_participants: 30000
     apr_boost: 0.1
 
 rounds:
@@ -89,9 +89,9 @@ This produces the following documents under the `./rewards` directory:
 
 ```bash
 📂 rewards
-├── 📄 by-owner.csv            # Reward per round for each owner for each round
-├── 📄 by-validator.csv        # Reward per round for each validator for each round
-├── 📄 by-recipient.csv        # Reward per round for each recipient for each round
+├── 📄 by-owner.csv            # Reward for each owner for each round
+├── 📄 by-validator.csv        # Reward for each validator for each round
+├── 📄 by-recipient.csv        # Reward for each recipient for each round
 ├── 📄 total-by-owner.csv      # Total reward for each owner
 ├── 📄 total-by-validator.csv  # Total reward for each validator
 └── 📂 <year>-<month>
@@ -115,3 +115,13 @@ After calculating the reward distribution, you may merkleize the rewards for a s
    npx hardhat run scripts/merkle.ts
    ```
 3. The merkle tree is generated at `./merkle-generator/scripts/output-1.json`.
+
+## Updating
+
+1. Pull the changes and rebuild the Docker images:
+   ```bash
+   git pull
+   docker-compose build
+   ```
+2. Refer to `.env.example and update your `.env` file if necessary.
+3. Refer to `rewards.example.yaml` and update your `rewards.yaml` file if necessary.

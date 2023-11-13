@@ -23,7 +23,7 @@ tiers:
     apr_boost: 0.3
   - max_participants: 15000
     apr_boost: 0.2
-  - max_participants: ~
+  - max_participants: 30000
     apr_boost: 0.1
 
 rounds:
@@ -44,7 +44,7 @@ rounds:
 			{MaxParticipants: 5000, APRBoost: 0.4},
 			{MaxParticipants: 10000, APRBoost: 0.3},
 			{MaxParticipants: 15000, APRBoost: 0.2},
-			{MaxParticipants: math.MaxInt, APRBoost: 0.1},
+			{MaxParticipants: 30000, APRBoost: 0.1},
 		},
 		Rounds: []Round{
 			{Period: NewPeriod(2023, time.July), ETHAPR: 0.047, SSVETH: 0.0088235294},
@@ -85,12 +85,12 @@ func TestPlan_Validate(t *testing.T) {
 			expectedErr: "duplicate tier",
 		},
 		{
-			name: "last tier limit",
+			name: "zero max participants",
 			plan: &Plan{
-				Tiers:  Tiers{{MaxParticipants: 1}, {MaxParticipants: 2}},
+				Tiers:  Tiers{{MaxParticipants: 0}},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}},
 			},
-			expectedErr: "last tier must not limit participants",
+			expectedErr: "max participants must be positive",
 		},
 		{
 			name:        "missing rounds",
