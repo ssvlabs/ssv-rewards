@@ -85,6 +85,22 @@ func (c *CalcCmd) Run(
 	}
 	defer os.RemoveAll(".tmp")
 
+	// Populate the inputs directory.
+	inputsDir := filepath.Join(tmpDir, "inputs")
+	if err := os.Mkdir(inputsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create inputs directory: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(inputsDir, "rewards.yaml"), data, 0644); err != nil {
+		return fmt.Errorf("failed to write rewards.yaml: %w", err)
+	}
+	planJSON, err := json.MarshalIndent(c.plan, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal rewards plan: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(inputsDir, "rewards.json"), planJSON, 0644); err != nil {
+		return fmt.Errorf("failed to write rewards.json: %w", err)
+	}
+
 	// Calculate rewards.
 	if err := c.run(ctx, logger, tmpDir); err != nil {
 		return fmt.Errorf("failed to calculate rewards: %w", err)
