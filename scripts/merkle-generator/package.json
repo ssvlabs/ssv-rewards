@@ -1,0 +1,13 @@
+{
+  "name": "hardhat-project",
+  "devDependencies": {
+    "@openzeppelin/contracts": "^4.2.0",
+    "@openzeppelin/test-helpers": "^0.5.11",
+    "@nomicfoundation/hardhat-toolbox": "^2.0.2",
+    "@nomiclabs/hardhat-web3": "^2.0.0",
+    "hardhat": "^2.17.3",
+    "keccak256": "^1.0.3",
+    "merkletreejs": "^0.2.24",
+    "@1inch/solidity-utils": "3.0.1"
+  }
+}

@@ -76,7 +76,7 @@ _This might take a while, depending on how long ago the SSV contract was deploye
 
 ### Calculation
 
-After syncing, you may calculate the reward distribution for a given period:
+After syncing, you may calculate the reward distribution:
 
 ```bash
 docker-compose run --rm calc
@@ -100,4 +100,13 @@ This produces the following documents under the `./rewards` directory:
 
 ### Merkleization
 
-TODO: After calculating the distribution, you may merkleize the rewards for each month.
+After calculating the reward distribution, you may merkleize the rewards for a specific round.
+
+1. Copy the file at `./rewards/<year>-<month>/cumulative.json` over to `./scripts/merkle-generator/scripts/input-1.json`.
+2. Run the merkleization script:
+   ```bash
+   cd merkle-generator
+   npm i
+   npx hardhat run scripts/merkle.ts
+   ```
+3. The merkle tree is generated at `./merkle-generator/scripts/output-1.json`.
