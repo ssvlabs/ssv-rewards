@@ -248,12 +248,13 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		// Export cumulative rewards.
-		totalRewards := map[string]*big.Int{}
+		totalRewards := map[string]string{}
 		for _, participation := range totalByRecipient {
-			totalRewards["0x"+participation.RecipientAddress], _ = new(big.Float).Mul(
+			i, _ := new(big.Float).Mul(
 				big.NewFloat(participation.Reward),
 				big.NewFloat(math.Pow10(18)),
 			).Int(nil)
+			totalRewards["0x"+participation.RecipientAddress] = i.String()
 		}
 		f, err := os.Create(filepath.Join(dir, "cumulative.json"))
 		if err != nil {

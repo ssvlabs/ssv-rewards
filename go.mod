@@ -4,7 +4,6 @@ go 1.21
 
 require (
 	github.com/alecthomas/kong v0.8.1
-	github.com/aquasecurity/table v1.8.0
 	github.com/attestantio/go-eth2-client v0.16.3
 	github.com/bloxapp/ssv v0.0.0-00010101000000-000000000000
 	github.com/bloxapp/ssv-spec v0.3.1
@@ -25,6 +24,7 @@ require (
 	go.uber.org/zap v1.24.0
 	golang.org/x/exp v0.0.0-20230810033253-352e893a4cad
 	golang.org/x/time v0.4.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -116,7 +116,6 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
 )
 
