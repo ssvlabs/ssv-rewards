@@ -110,7 +110,7 @@ After calculating the reward distribution, you may merkleize the rewards for a s
 1. Copy the file at `./rewards/<year>-<month>/cumulative.json` over to `./scripts/merkle-generator/scripts/input-1.json`.
 2. Run the merkleization script:
    ```bash
-   cd merkle-generator
+   cd scripts/merkle-generator
    npm i
    npx hardhat run scripts/merkle.ts
    ```
