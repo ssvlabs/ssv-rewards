@@ -1,22 +1,22 @@
 package sync
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/bloxapp/ssv/networkconfig"
 	registrystorage "github.com/bloxapp/ssv/registry/storage"
-	"github.com/carlmjohnson/requests"
 	"golang.org/x/exp/maps"
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/etherscan"
 	spectypes "github.com/bloxapp/ssv-spec/types"
 	"github.com/bloxapp/ssv/eth/contract"
 	"github.com/bloxapp/ssv/eth/eventhandler"
@@ -46,6 +46,7 @@ func SyncValidatorEvents(
 	db *sql.DB,
 	ethClient *ethclient.Client,
 	cl eth2client.Service,
+	etherscan *etherscan.Client,
 ) error {
 	// Fetch events from the database, organize into a channel of BlockLogs
 	// and process them using SSV's EventHandler.
@@ -105,7 +106,7 @@ func SyncValidatorEvents(
 	// Spawn handled event recorder.
 	eventTraces := make(chan eventhandler.EventTrace, 1024)
 	backgroundTasks.Go(func(ctx context.Context) (err error) {
-		if err := recordHandledEvents(ctx, logger, db, nodeStorage, ethClient, eventTraces); err != nil {
+		if err := recordHandledEvents(ctx, logger, db, nodeStorage, ethClient, etherscan, eventTraces); err != nil {
 			return fmt.Errorf("failed to record handled event: %w", err)
 		}
 		return nil
@@ -277,6 +278,7 @@ func recordHandledEvents(
 	db *sql.DB,
 	nodeStorage operatorstorage.Storage,
 	ethClient *ethclient.Client,
+	etherscan *etherscan.Client,
 	eventTraces <-chan eventhandler.EventTrace,
 ) error {
 	recordedEvents := 0
@@ -383,43 +385,20 @@ func recordHandledEvents(
 					)
 				}
 				if len(codeAt[ownerAddress]) > 0 {
-					var resp struct {
-						Status  string `json:"status"`
-						Message string `json:"message"`
-						Result  []struct {
-							ContractAddress string `json:"contractAddress"`
-							ContractCreator string `json:"contractCreator"`
-							TxHash          string `json:"txHash"`
-						}
-					}
-					err := requests.URL("https://api.etherscan.io/api").
-						Param("module", "contract").
-						Param("action", "getcontractcreation").
-						Param("contractaddresses", ownerAddress.String()).
-						Param("apikey", "YourApiKeyToken").
-						ToJSON(&resp).
-						Fetch(ctx)
+					contractCreations, err := etherscan.ContractCreation(
+						ctx,
+						[]common.Address{ownerAddress},
+					)
 					if err != nil {
 						return fmt.Errorf("failed to get contract creation: %w", err)
 					}
-					if resp.Status != "1" || !strings.HasPrefix(resp.Message, "OK-") {
-						return fmt.Errorf("failed to get contract creation: %s", resp.Message)
-					}
-					if len(resp.Result) != 1 {
-						return fmt.Errorf("failed to get contract creation: no result")
-					}
-					deployerAddress, err := hex.DecodeString(resp.Result[0].ContractAddress[2:])
-					if err != nil {
-						return fmt.Errorf("failed to decode deployer address: %w", err)
-					}
-					txHash, err := hex.DecodeString(resp.Result[0].TxHash[2:])
-					if err != nil {
-						return fmt.Errorf("failed to decode tx hash: %w", err)
+					if !bytes.Equal(contractCreations[0].ContractAddress, ownerAddress.Bytes()) {
+						return fmt.Errorf("contract creation mismatch")
 					}
 					deployer := models.Deployer{
 						OwnerAddress:    hex.EncodeToString(ownerAddress[:]),
-						DeployerAddress: hex.EncodeToString(deployerAddress),
-						TXHash:          hex.EncodeToString(txHash),
+						DeployerAddress: hex.EncodeToString(contractCreations[0].ContractCreator),
+						TXHash:          hex.EncodeToString(contractCreations[0].TxHash),
 					}
 					if err := deployer.Insert(ctx, db, boil.Infer()); err != nil {
 						return fmt.Errorf("failed to upsert deployer: %w", err)

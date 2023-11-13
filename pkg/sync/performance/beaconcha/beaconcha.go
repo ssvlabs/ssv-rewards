@@ -16,40 +16,6 @@ const (
 	ProviderType performance.ProviderType = "beaconcha"
 )
 
-type dailyData struct {
-	Day                   int       `json:"day"`
-	AttesterSlashings     int       `json:"attester_slashings"`
-	DayEnd                time.Time `json:"day_end"`
-	DayStart              time.Time `json:"day_start"`
-	Deposits              uint64    `json:"deposits"`
-	DepositsAmount        uint64    `json:"deposits_amount"`
-	EndBalance            uint64    `json:"end_balance"`
-	EndEffectiveBalance   uint64    `json:"end_effective_balance"`
-	MaxBalance            uint64    `json:"max_balance"`
-	MaxEffectiveBalance   uint64    `json:"max_effective_balance"`
-	MinBalance            uint64    `json:"min_balance"`
-	MinEffectiveBalance   uint64    `json:"min_effective_balance"`
-	MissedAttestations    int       `json:"missed_attestations"`
-	MissedBlocks          int       `json:"missed_blocks"`
-	MissedSync            int       `json:"missed_sync"`
-	OrphanedAttestations  int       `json:"orphaned_attestations"`
-	OrphanedBlocks        int       `json:"orphaned_blocks"`
-	OrphanedSync          int       `json:"orphaned_sync"`
-	ParticipatedSync      int       `json:"participated_sync"`
-	ProposedBlocks        int       `json:"proposed_blocks"`
-	ProposerSlashings     int       `json:"proposer_slashings"`
-	StartBalance          uint64    `json:"start_balance"`
-	StartEffectiveBalance uint64    `json:"start_effective_balance"`
-	ValidatorIndex        int       `json:"validatorindex"`
-	Withdrawals           uint64    `json:"withdrawals"`
-	WithdrawalsAmount     uint64    `json:"withdrawals_amount"`
-}
-
-type response struct {
-	Status string      `json:"status"`
-	Data   []dailyData `json:"data"`
-}
-
 type Client struct {
 	endpoint    string
 	apiKey      string
@@ -62,7 +28,7 @@ func New(endpoint string, apiKey string, requestsPerMinute float64) *Client {
 		endpoint: endpoint,
 		apiKey:   apiKey,
 		rateLimiter: rate.NewLimiter(
-			rate.Every(time.Minute/time.Duration(requestsPerMinute)),
+			rate.Every(time.Duration(float64(time.Minute)/requestsPerMinute)),
 			1,
 		),
 		cache: make(map[phase0.ValidatorIndex][]dailyData),
@@ -86,7 +52,6 @@ func (m *Client) ValidatorPerformance(
 		if err := m.rateLimiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("failed to wait for rate limiter: %w", err)
 		}
-
 		var resp response
 		err := requests.URL(m.endpoint).
 			Pathf("/api/v1/validator/stats/%d", index).
@@ -150,4 +115,38 @@ func (m *Client) ValidatorPerformance(
 		return performance, nil
 	}
 	return nil, nil
+}
+
+type response struct {
+	Status string      `json:"status"`
+	Data   []dailyData `json:"data"`
+}
+
+type dailyData struct {
+	Day                   int       `json:"day"`
+	AttesterSlashings     int       `json:"attester_slashings"`
+	DayEnd                time.Time `json:"day_end"`
+	DayStart              time.Time `json:"day_start"`
+	Deposits              uint64    `json:"deposits"`
+	DepositsAmount        uint64    `json:"deposits_amount"`
+	EndBalance            uint64    `json:"end_balance"`
+	EndEffectiveBalance   uint64    `json:"end_effective_balance"`
+	MaxBalance            uint64    `json:"max_balance"`
+	MaxEffectiveBalance   uint64    `json:"max_effective_balance"`
+	MinBalance            uint64    `json:"min_balance"`
+	MinEffectiveBalance   uint64    `json:"min_effective_balance"`
+	MissedAttestations    int       `json:"missed_attestations"`
+	MissedBlocks          int       `json:"missed_blocks"`
+	MissedSync            int       `json:"missed_sync"`
+	OrphanedAttestations  int       `json:"orphaned_attestations"`
+	OrphanedBlocks        int       `json:"orphaned_blocks"`
+	OrphanedSync          int       `json:"orphaned_sync"`
+	ParticipatedSync      int       `json:"participated_sync"`
+	ProposedBlocks        int       `json:"proposed_blocks"`
+	ProposerSlashings     int       `json:"proposer_slashings"`
+	StartBalance          uint64    `json:"start_balance"`
+	StartEffectiveBalance uint64    `json:"start_effective_balance"`
+	ValidatorIndex        int       `json:"validatorindex"`
+	Withdrawals           uint64    `json:"withdrawals"`
+	WithdrawalsAmount     uint64    `json:"withdrawals_amount"`
 }

@@ -28,10 +28,13 @@ SSV_API_ENDPOINT=https://api.ssv.network/api/v4
 
 # Beaconcha.in API
 BEACONCHA_ENDPOINT=https://beaconcha.in
-BEACONCHA_API_KEY=<your-api-key>
+BEACONCHA_API_KEY= # Optional
+BEACONCHA_REQUESTS_PER_MINUTE=20 # Adjust according to your Beaconcha.in API plan
 
-# Optional: If you have a paid plan, you can increase the rate limit.
-# BEACONCHA_REQUESTS_PER_MINUTE=100
+# Etherscan API
+ETHERSCAN_API_ENDPOINT=https://api.etherscan.io
+ETHERSCAN_API_KEY= # Optional
+ETHERSCAN_REQUESTS_PER_SECOND=0.1 # Adjust according to your Etherscan API plan
 ```
 
 Edit `rewards.yaml` to match [the specifications](https://docs.google.com/document/d/1pcr8QVcq9eZfiOJGrm5OsE9JAqdQy1F8Svv1xgecjNY):
@@ -97,6 +100,8 @@ This produces the following documents under the `./rewards` directory:
     ├── 📄 by-recipient.csv    # Total reward for each recipient for this month
     └── 📄 cumulative.json     # Cumulative reward for each owner until and including this month
 ```
+
+- `recipient` is the address that eventually receives the reward, which is either the owner address, or if the owner is a contract, then the deployer address of the contract.
 
 ### Merkleization
 

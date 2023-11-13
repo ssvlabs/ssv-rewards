@@ -19,6 +19,7 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/models"
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/bloxapp/ssv-rewards/pkg/sync"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/etherscan"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance/beaconcha"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance/e2m"
@@ -37,17 +38,20 @@ import (
 )
 
 type SyncCmd struct {
-	DataDir                    string `env:"DATA_DIR"                      default:"./data"               help:"Path to the data directory."`
-	ExecutionEndpoint          string `env:"EXECUTION_ENDPOINT"                                           help:"RPC endpoint to an Ethereum execution node."                                        required:""`
-	ConsensusEndpoint          string `env:"CONSENSUS_ENDPOINT"                                           help:"HTTP endpoint to an Ethereum Beacon node API."                                      required:""`
-	SSVAPIEndpoint             string `env:"SSV_API_ENDPOINT"                                             help:"HTTP endpoint to an SSV API."                                                       required:""`
-	E2MEndpoint                string `env:"E2M_ENDPOINT"                                                 help:"HTTP endpoint to an ethereum2-monitor API."                                         required:"" xor:"monitoring-endpoint" name:"e2m-endpoint"`
-	BeaconchaEndpoint          string `env:"BEACONCHA_ENDPOINT"            default:"https://beaconcha.in" help:"HTTP endpoint to a beaconcha.in API."                                               required:"" xor:"monitoring-endpoint"`
-	BeaconchaAPIKey            string `env:"BEACONCHA_API_KEY"                                            help:"API key for beaconcha.in API."                                                      required:""`
-	BeaconchaRequestsPerMinute int    `env:"BEACONCHA_REQUESTS_PER_MINUTE" default:"20"                   help:"Maximum number of requests per minute to beaconcha.in API."                         required:""`
-	HighestExecutionBlock      uint64 `env:"HIGHEST_EXECUTION_BLOCK"                                      help:"Execution block number to end syncing at. Defaults to the highest finalized block."`
-	Fresh                      bool   `env:"FRESH"                                                        help:"Delete all data and start from scratch."`
-	FreshSSV                   bool   `env:"FRESH_SSV"                                                    help:"Delete all SSV data and start from scratch."`
+	DataDir                    string  `env:"DATA_DIR"                      default:"./data"               help:"Path to the data directory."`
+	ExecutionEndpoint          string  `env:"EXECUTION_ENDPOINT"                                           help:"RPC endpoint to an Ethereum execution node."                                        required:""`
+	ConsensusEndpoint          string  `env:"CONSENSUS_ENDPOINT"                                           help:"HTTP endpoint to an Ethereum Beacon node API."                                      required:""`
+	SSVAPIEndpoint             string  `env:"SSV_API_ENDPOINT"                                             help:"HTTP endpoint to an SSV API."                                                       required:""`
+	E2MEndpoint                string  `env:"E2M_ENDPOINT"                                                 help:"HTTP endpoint to an ethereum2-monitor API."                                         required:"" xor:"monitoring-endpoint" name:"e2m-endpoint"`
+	BeaconchaEndpoint          string  `env:"BEACONCHA_ENDPOINT"            default:"https://beaconcha.in" help:"HTTP endpoint to a beaconcha.in API."                                               required:"" xor:"monitoring-endpoint"`
+	BeaconchaAPIKey            string  `env:"BEACONCHA_API_KEY"                                            help:"API key for beaconcha.in API."`
+	BeaconchaRequestsPerMinute float64 `env:"BEACONCHA_REQUESTS_PER_MINUTE" default:"20"                   help:"Maximum number of requests per minute to beaconcha.in API."`
+	EtherscanAPIEndpoint       string  `env:"ETHERSCAN_API_ENDPOINT"                                       help:"HTTP endpoint to an Etherscan API."                                                 required:""`
+	EtherscanAPIKey            string  `env:"ETHERSCAN_API_KEY"                                            help:"API key for Etherscan API."`
+	EtherscanRequestsPerSecond float64 `env:"ETHERSCAN_REQUESTS_PER_SECOND" default:"0.1"                  help:"Maximum number of requests per second to Etherscan API."`
+	HighestExecutionBlock      uint64  `env:"HIGHEST_EXECUTION_BLOCK"                                      help:"Execution block number to end syncing at. Defaults to the highest finalized block."`
+	Fresh                      bool    `env:"FRESH"                                                        help:"Delete all data and start from scratch."`
+	FreshSSV                   bool    `env:"FRESH_SSV"                                                    help:"Delete all SSV data and start from scratch."`
 }
 
 func (c *SyncCmd) Run(
@@ -186,10 +190,10 @@ func (c *SyncCmd) Run(
 		}
 	} else {
 		if state.NetworkName != network.Name {
-			return fmt.Errorf("database is already synced with %s, not %s", state.NetworkName, network.Name)
+			return fmt.Errorf("database is already synced with %s, want %s", state.NetworkName, network.Name)
 		}
 		if state.LowestBlockNumber != int(fromBlock) {
-			return fmt.Errorf("lowest block number mismatch: %d != %d", state.LowestBlockNumber, fromBlock)
+			return fmt.Errorf("database is already synced from block %d, want %d", state.LowestBlockNumber, fromBlock)
 		}
 		fromBlock = uint64(state.HighestBlockNumber) + 1
 	}
@@ -221,6 +225,11 @@ func (c *SyncCmd) Run(
 		db,
 		el.RPC(),
 		cl,
+		etherscan.New(
+			c.EtherscanAPIEndpoint,
+			c.EtherscanAPIKey,
+			float64(c.EtherscanRequestsPerSecond)*0.95,
+		), // Safety margin.
 	)
 	if err != nil {
 		return fmt.Errorf("failed to sync validator events: %w", err)

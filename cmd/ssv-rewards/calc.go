@@ -31,7 +31,12 @@ type CalcCmd struct {
 	db   *sql.DB
 }
 
-func (c *CalcCmd) Run(logger *zap.Logger, db *sql.DB, network networkconfig.NetworkConfig, plan *rewards.Plan) error {
+func (c *CalcCmd) Run(
+	logger *zap.Logger,
+	db *sql.DB,
+	network networkconfig.NetworkConfig,
+	plan *rewards.Plan,
+) error {
 	c.db = db
 	ctx := context.Background()
 
