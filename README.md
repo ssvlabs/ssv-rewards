@@ -125,3 +125,7 @@ After calculating the reward distribution, you may merkleize the rewards for a s
    ```
 2. Refer to `.env.example` and update your `.env` file if necessary.
 3. Refer to `rewards.example.yaml` and update your `rewards.yaml` file if necessary.
+4. Sync with `--fresh` to re-create the databases and sync from scratch:
+   ```bash
+   docker-compose run --rm sync sync --fresh
+   ```
