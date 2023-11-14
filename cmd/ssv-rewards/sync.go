@@ -152,7 +152,7 @@ func (c *SyncCmd) Run(
 	}
 	spec := beacon.Spec{
 		Network:        network.Beacon.GetNetwork().String(),
-		GenesisTime:    genesisTime,
+		GenesisTime:    genesisTime.UTC(),
 		SlotsPerEpoch:  32,
 		SlotDuration:   12 * time.Second,
 		FarFutureEpoch: math.MaxUint64,

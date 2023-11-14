@@ -140,14 +140,13 @@ func SyncValidatorPerformance(
 		bar.Describe(day.Format("2006-01-02"))
 		totalDays++
 
-		fromEpoch := phase0.Epoch(
-			spec.EpochAt(spec.SlotAt(day)) + 1,
-		)
-		toEpoch := phase0.Epoch(
-			spec.EpochAt(spec.SlotAt(day.AddDate(0, 0, 1))),
-		)
+		// Determine the epoch range for the day.
+		beaconDay := beaconDay(spec, day.Year(), day.Month(), day.Day())
+		fromEpoch := phase0.Epoch(spec.EpochAt(spec.SlotAt(beaconDay)))
+		toEpoch := phase0.Epoch(spec.EpochAt(spec.SlotAt(beaconDay.AddDate(0, 0, 1))) - 1)
 		logger := logger.With(
-			zap.Time("day", day),
+			zap.String("day", day.Format("2006-01-02")),
+			zap.Time("beacon_day", beaconDay),
 			zap.Uint64("from_epoch", uint64(fromEpoch)),
 			zap.Uint64("to_epoch", uint64(toEpoch)),
 		)
@@ -362,4 +361,19 @@ func decodeValidatorPublicKey(hexEncoded string) (phase0.BLSPubKey, error) {
 		return phase0.BLSPubKey{}, fmt.Errorf("invalid public key length: %d", len(pk))
 	}
 	return phase0.BLSPubKey(pk), nil
+}
+
+// beaconDay returns the time of the first slot of the given day,
+// counting from the Beacon genesis time.
+func beaconDay(spec beacon.Spec, year int, month time.Month, day int) time.Time {
+	return time.Date(
+		year,
+		month,
+		day,
+		spec.GenesisTime.Hour(),
+		spec.GenesisTime.Minute(),
+		spec.GenesisTime.Second(),
+		spec.GenesisTime.Nanosecond(),
+		time.UTC,
+	)
 }
