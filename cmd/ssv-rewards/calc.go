@@ -149,7 +149,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	// Calculate rewards.
 	var byValidator []*ValidatorParticipationRound
 	var byOwner []*OwnerParticipationRound
-	var byRecipient []*RecipientParticipation
+	var byRecipient []*RecipientParticipationRound
 	var totalByValidator = map[string]*ValidatorParticipation{}
 	var totalByOwner = map[string]*OwnerParticipation{}
 	var totalByRecipient = map[string]*RecipientParticipation{}
@@ -190,7 +190,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			ownerActiveDays[participation.OwnerAddress] += participation.ActiveDays
 
 			byValidator = append(byValidator, &ValidatorParticipationRound{
-				Period:                 round.Period,
+				Round:                  round.Period,
 				ValidatorParticipation: participation,
 			})
 			if total, ok := totalByValidator[participation.PublicKey]; ok {
@@ -212,7 +212,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			}
 
 			byOwner = append(byOwner, &OwnerParticipationRound{
-				Period:             round.Period,
+				Round:              round.Period,
 				OwnerParticipation: participation,
 			})
 			if total, ok := totalByOwner[participation.OwnerAddress]; ok {
@@ -226,7 +226,10 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		for _, participation := range recipientParticipations {
 			participation.Reward = dailyReward * float64(participation.ActiveDays)
 
-			byRecipient = append(byRecipient, participation)
+			byRecipient = append(byRecipient, &RecipientParticipationRound{
+				Round:                  round.Period,
+				RecipientParticipation: participation,
+			})
 			if total, ok := totalByRecipient[participation.RecipientAddress]; ok {
 				total.ActiveDays += participation.ActiveDays
 				total.Reward += participation.Reward
@@ -326,7 +329,7 @@ type ValidatorParticipation struct {
 }
 
 type ValidatorParticipationRound struct {
-	Period rewards.Period
+	Round rewards.Period
 	*ValidatorParticipation
 }
 
@@ -352,7 +355,7 @@ type OwnerParticipation struct {
 }
 
 type OwnerParticipationRound struct {
-	Period rewards.Period
+	Round rewards.Period
 	*OwnerParticipation
 }
 
@@ -375,6 +378,11 @@ type RecipientParticipation struct {
 	IsDeployer       bool
 	ActiveDays       int
 	Reward           float64 `boil:"-"`
+}
+
+type RecipientParticipationRound struct {
+	Round rewards.Period
+	*RecipientParticipation
 }
 
 func (c *CalcCmd) recipientParticipations(
