@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/big"
 	"os"
@@ -131,15 +132,18 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	if state.EarliestValidatorPerformance.Time.After(c.plan.Rounds[0].Period.FirstDay()) {
 		return fmt.Errorf("validator performance data is not available for the first round")
 	}
-	latestValidatorPerformancePeriod := rewards.PeriodAt(state.LatestValidatorPerformance.Time)
 
 	// Select the rounds with available performance data.
 	var completeRounds []rewards.Round
 	for _, round := range c.plan.Rounds {
+		log.Printf("%s, %s", round.Period.LastDay(), state.LatestValidatorPerformance.Time.AddDate(0, 0, 1))
 		if round.ETHAPR > 0 && round.SSVETH > 0 &&
-			round.Period.LastDay().Before(latestValidatorPerformancePeriod.FirstDay()) {
+			round.Period.LastDay().Before(state.LatestValidatorPerformance.Time.AddDate(0, 0, 1)) {
 			completeRounds = append(completeRounds, round)
 		}
+	}
+	if len(completeRounds) == 0 {
+		return fmt.Errorf("no rounds with available performance data")
 	}
 
 	// Calculate rewards.
