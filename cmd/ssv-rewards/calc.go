@@ -270,7 +270,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		logger.Info(
 			"Exported rewards for round",
 			zap.String("period", round.Period.String()),
-			zap.Int("participations", len(validatorParticipations)),
+			zap.Int("validators", len(validatorParticipations)),
 			zap.Int("tier", tier.MaxParticipants),
 			zap.Float64("daily_reward", dailyReward),
 			zap.Float64("monthly_reward", monthlyReward),

@@ -168,13 +168,18 @@ func SyncValidatorPerformance(
 				return fmt.Errorf("failed to decode validator public key: %w", err)
 			}
 			epoch := spec.EpochAt(phase0.Slot(event.Slot))
-			if event.Activated {
+			switch event.EventName {
+			case eventparser.ValidatorAdded:
 				activeValidators[pk] = activeValidator{
 					Since:        epoch,
 					OwnerAddress: event.OwnerAddress,
 				}
-			} else {
+			case eventparser.ValidatorRemoved:
 				delete(activeValidators, pk)
+			case eventparser.ClusterLiquidated, eventparser.ClusterReactivated:
+				// Ignore.
+			default:
+				return fmt.Errorf("unexpected validator event: %s", event.EventName)
 			}
 		}
 
