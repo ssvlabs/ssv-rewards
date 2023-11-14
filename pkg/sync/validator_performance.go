@@ -196,6 +196,7 @@ func SyncValidatorPerformance(
 		}
 
 		// Insert ValidatorPerformance records.
+		logger.Debug("Fetching validator performance")
 		pool := pool.New().WithContext(ctx).WithCancelOnError().WithFirstError()
 
 		var decideds = map[string]int{}
