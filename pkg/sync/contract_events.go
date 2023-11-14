@@ -57,7 +57,7 @@ FetchEvents:
 				break FetchEvents
 			}
 			if err := insertContractEvents(ctx, logger, spec, db, eventParser, el, blockLogs.BlockNumber, blockLogs.Logs); err != nil {
-				return fmt.Errorf("failed to insert contract events: %w", err)
+				return fmt.Errorf("failed to insert contract events for block %d: %w", blockLogs.BlockNumber, err)
 			}
 			totalEvents += len(blockLogs.Logs)
 			bar.Set(int(blockLogs.BlockNumber-fromBlock) + 1)

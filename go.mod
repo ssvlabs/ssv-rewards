@@ -119,4 +119,4 @@ require (
 	lukechampine.com/blake3 v1.2.1 // indirect
 )
 
-replace github.com/bloxapp/ssv => github.com/bloxapp/ssv v0.0.0-20231024092314-f58113e0e2e0
+replace github.com/bloxapp/ssv => github.com/bloxapp/ssv v0.0.0-20231114122316-fbea6434c253

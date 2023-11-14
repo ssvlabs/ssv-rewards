@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/bloxapp/ssv/networkconfig"
 	registrystorage "github.com/bloxapp/ssv/registry/storage"
@@ -63,20 +64,21 @@ func SyncValidatorEvents(
 		lastProcessedBlockInt = int(lastProcessedBlock.Int64()) + 1
 	}
 
-	// Spawn event retriever.
+	// Spawn database event retriever, which assembles events into BlockLogs
+	// for the EventHandler.
 	backgroundTasks := pool.New().WithContext(ctx).WithCancelOnError()
 	events, err := models.ContractEvents(
 		models.ContractEventWhere.BlockNumber.GTE(lastProcessedBlockInt),
-		qm.OrderBy(
-			"?, ?",
-			models.ContractEventColumns.BlockNumber,
-			models.ContractEventColumns.LogIndex,
-		),
+		qm.OrderBy("block_number, log_index"),
 	).All(ctx, db)
 	if err != nil {
 		return fmt.Errorf("failed to get events: %w", err)
 	}
 
+	logger.Info("Processing events",
+		zap.Int("last_processed_block", lastProcessedBlockInt),
+		zap.Int("total_events", len(events)),
+	)
 	bar := progressbar.New(len(events))
 	bar.Describe("Processing events")
 	defer bar.Clear()

@@ -104,6 +104,11 @@ func (c *SyncCmd) Run(
 		if _, err := db.ExecContext(ctx, truncate); err != nil {
 			return fmt.Errorf("failed to truncate validator_events: %w", err)
 		}
+
+		// Unset recorded errors in the contract_events table.
+		if _, err := db.ExecContext(ctx, "UPDATE contract_events SET error = NULL"); err != nil {
+			return fmt.Errorf("failed to unset contract_events.error: %w", err)
+		}
 	}
 
 	// Open SSV DB.
