@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/bloxapp/ssv/networkconfig"
 	registrystorage "github.com/bloxapp/ssv/registry/storage"
