@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bloxapp/ssv-rewards/pkg/precise"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,14 +41,18 @@ rounds:
 			MinDecidedsPerDay:     22,
 		},
 		Tiers: []Tier{
-			{MaxParticipants: 2000, APRBoost: 0.5},
-			{MaxParticipants: 5000, APRBoost: 0.4},
-			{MaxParticipants: 10000, APRBoost: 0.3},
-			{MaxParticipants: 15000, APRBoost: 0.2},
-			{MaxParticipants: 30000, APRBoost: 0.1},
+			{MaxParticipants: 2000, APRBoost: mustParseETH("0.5")},
+			{MaxParticipants: 5000, APRBoost: mustParseETH("0.4")},
+			{MaxParticipants: 10000, APRBoost: mustParseETH("0.3")},
+			{MaxParticipants: 15000, APRBoost: mustParseETH("0.2")},
+			{MaxParticipants: 30000, APRBoost: mustParseETH("0.1")},
 		},
 		Rounds: []Round{
-			{Period: NewPeriod(2023, time.July), ETHAPR: 0.047, SSVETH: 0.0088235294},
+			{
+				Period: NewPeriod(2023, time.July),
+				ETHAPR: mustParseETH("0.047"),
+				SSVETH: mustParseETH("0.0088235294"),
+			},
 			{Period: NewPeriod(2023, time.August)},
 		},
 	}
@@ -131,4 +136,12 @@ func TestPlan_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustParseETH(s string) *precise.ETH {
+	e, err := precise.ParseETH(s)
+	if err != nil {
+		panic(err)
+	}
+	return e
 }

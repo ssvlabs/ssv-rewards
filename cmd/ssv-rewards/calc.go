@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
-	"math"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -16,6 +14,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/precise"
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/gocarina/gocsv"
@@ -136,8 +135,8 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	// Select the rounds with available performance data.
 	var completeRounds []rewards.Round
 	for _, round := range c.plan.Rounds {
-		log.Printf("%s, %s", round.Period.LastDay(), state.LatestValidatorPerformance.Time.AddDate(0, 0, 1))
-		if round.ETHAPR > 0 && round.SSVETH > 0 &&
+		if round.ETHAPR.Float().Cmp(big.NewFloat(0)) == 1 &&
+			round.SSVETH.Float().Cmp(big.NewFloat(0)) == 1 &&
 			round.Period.LastDay().Before(state.LatestValidatorPerformance.Time.AddDate(0, 0, 1)) {
 			completeRounds = append(completeRounds, round)
 		}
@@ -182,11 +181,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		// Attach rewards to participations.
-		ownerRewards := map[string]float64{}
 		ownerActiveDays := map[string]int{}
 		for _, participation := range validatorParticipations {
-			participation.Reward = dailyReward * float64(participation.ActiveDays)
-			ownerRewards[participation.OwnerAddress] += participation.Reward
+			// participation.Reward = dailyReward * float64(participation.ActiveDays)
+			participation.reward = new(
+				big.Int,
+			).Mul(dailyReward, big.NewInt(int64(participation.ActiveDays)))
 			ownerActiveDays[participation.OwnerAddress] += participation.ActiveDays
 
 			byValidator = append(byValidator, &ValidatorParticipationRound{
@@ -195,14 +195,16 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			})
 			if total, ok := totalByValidator[participation.PublicKey]; ok {
 				total.ActiveDays += participation.ActiveDays
-				total.Reward += participation.Reward
+				total.reward = new(big.Int).Add(total.reward, participation.reward)
 			} else {
 				cpy := *participation
 				totalByValidator[participation.PublicKey] = &cpy
 			}
 		}
 		for _, participation := range ownerParticipations {
-			participation.Reward = dailyReward * float64(participation.ActiveDays)
+			participation.reward = new(
+				big.Int,
+			).Mul(dailyReward, big.NewInt(int64(participation.ActiveDays)))
 
 			if participation.ActiveDays != ownerActiveDays[participation.OwnerAddress] {
 				return fmt.Errorf(
@@ -217,14 +219,16 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			})
 			if total, ok := totalByOwner[participation.OwnerAddress]; ok {
 				total.ActiveDays += participation.ActiveDays
-				total.Reward += participation.Reward
+				total.reward = new(big.Int).Add(total.reward, participation.reward)
 			} else {
 				cpy := *participation
 				totalByOwner[participation.OwnerAddress] = &cpy
 			}
 		}
 		for _, participation := range recipientParticipations {
-			participation.Reward = dailyReward * float64(participation.ActiveDays)
+			participation.reward = new(
+				big.Int,
+			).Mul(dailyReward, big.NewInt(int64(participation.ActiveDays)))
 
 			byRecipient = append(byRecipient, &RecipientParticipationRound{
 				Round:                  round.Period,
@@ -232,7 +236,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			})
 			if total, ok := totalByRecipient[participation.RecipientAddress]; ok {
 				total.ActiveDays += participation.ActiveDays
-				total.Reward += participation.Reward
+				total.reward = new(big.Int).Add(total.reward, participation.reward)
 			} else {
 				cpy := *participation
 				totalByRecipient[participation.RecipientAddress] = &cpy
@@ -244,11 +248,20 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		if err := os.Mkdir(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %q: %w", dir, err)
 		}
+		for _, participation := range validatorParticipations {
+			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+		}
 		if err := exportCSV(validatorParticipations, filepath.Join(dir, "by-validator.csv")); err != nil {
 			return fmt.Errorf("failed to export validator rewards: %w", err)
 		}
+		for _, participation := range ownerParticipations {
+			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+		}
 		if err := exportCSV(ownerParticipations, filepath.Join(dir, "by-owner.csv")); err != nil {
 			return fmt.Errorf("failed to export owner rewards: %w", err)
+		}
+		for _, participation := range recipientParticipations {
+			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
 		}
 		if err := exportCSV(recipientParticipations, filepath.Join(dir, "by-recipient.csv")); err != nil {
 			return fmt.Errorf("failed to export recipient rewards: %w", err)
@@ -257,11 +270,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		// Export cumulative rewards.
 		totalRewards := map[string]string{}
 		for _, participation := range totalByRecipient {
-			i, _ := new(big.Float).Mul(
-				big.NewFloat(participation.Reward),
-				big.NewFloat(math.Pow10(18)),
-			).Int(nil)
-			totalRewards["0x"+participation.RecipientAddress] = i.String()
+			totalRewards["0x"+participation.RecipientAddress] = participation.reward.String()
 		}
 		f, err := os.Create(filepath.Join(dir, "cumulative.json"))
 		if err != nil {
@@ -279,9 +288,9 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			zap.String("period", round.Period.String()),
 			zap.Int("validators", len(validatorParticipations)),
 			zap.Int("tier", tier.MaxParticipants),
-			zap.Float64("daily_reward", dailyReward),
-			zap.Float64("monthly_reward", monthlyReward),
-			zap.Float64("annual_reward", annualReward),
+			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).String()),
+			zap.String("monthly_reward", precise.NewETH(nil).SetWei(monthlyReward).String()),
+			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).String()),
 		)
 	}
 
@@ -295,11 +304,20 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	if err := exportCSV(byRecipient, filepath.Join(dir, "by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
 	}
+	for _, participation := range totalByValidator {
+		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+	}
 	if err := exportCSV(maps.Values(totalByValidator), filepath.Join(dir, "total-by-validator.csv")); err != nil {
 		return fmt.Errorf("failed to export total validator rewards: %w", err)
 	}
+	for _, participation := range totalByOwner {
+		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+	}
 	if err := exportCSV(maps.Values(totalByOwner), filepath.Join(dir, "total-by-owner.csv")); err != nil {
 		return fmt.Errorf("failed to export total owner rewards: %w", err)
+	}
+	for _, participation := range totalByRecipient {
+		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
 	}
 	if err := exportCSV(maps.Values(totalByRecipient), filepath.Join(dir, "total-by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
@@ -325,7 +343,8 @@ type ValidatorParticipation struct {
 	OwnerAddress string
 	PublicKey    string
 	ActiveDays   int
-	Reward       float64 `boil:"-"`
+	Reward       *precise.ETH `boil:"-"`
+	reward       *big.Int     `boil:"-"`
 }
 
 type ValidatorParticipationRound struct {
@@ -351,7 +370,8 @@ type OwnerParticipation struct {
 	OwnerAddress string
 	Validators   int
 	ActiveDays   int
-	Reward       float64 `boil:"-"`
+	Reward       *precise.ETH `boil:"-"`
+	reward       *big.Int     `boil:"-"`
 }
 
 type OwnerParticipationRound struct {
@@ -377,7 +397,8 @@ type RecipientParticipation struct {
 	RecipientAddress string
 	IsDeployer       bool
 	ActiveDays       int
-	Reward           float64 `boil:"-"`
+	Reward           *precise.ETH `boil:"-"`
+	reward           *big.Int     `boil:"-"`
 }
 
 type RecipientParticipationRound struct {

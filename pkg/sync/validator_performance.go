@@ -266,7 +266,10 @@ func SyncValidatorPerformance(
 					performance.StartBeaconStatus = null.StringFrom(startState.String())
 					performance.EndBeaconStatus = null.StringFrom(endState.String())
 
-					logger.Debug("Fetching validator performance", zap.Int("validator_index", int(validator.Index.Int)))
+					logger.Debug(
+						"Fetching validator performance",
+						zap.Int("validator_index", int(validator.Index.Int)),
+					)
 					data, err := provider.ValidatorPerformance(
 						ctx,
 						spec,

@@ -74,21 +74,8 @@ func (m *Client) ValidatorPerformance(
 			continue
 		}
 
-		activeEpochs := toEpoch - fromEpoch + 1
-		if activationEpoch > fromEpoch {
-			if activationEpoch > toEpoch {
-				activeEpochs = 0
-			} else {
-				activeEpochs -= activationEpoch - fromEpoch
-			}
-		}
-		if exitEpoch != spec.FarFutureEpoch && exitEpoch < toEpoch {
-			if exitEpoch < fromEpoch {
-				activeEpochs = 0
-			} else {
-				activeEpochs -= toEpoch - exitEpoch
-			}
-		}
+		// Count the number of active epochs in the day.
+		activeEpochs := deriveActiveEpochs(spec, fromEpoch, toEpoch, activationEpoch, exitEpoch)
 
 		performance := &performance.ValidatorPerformance{
 			Attestations: performance.DutyPerformance{
@@ -149,4 +136,25 @@ type dailyData struct {
 	ValidatorIndex        int       `json:"validatorindex"`
 	Withdrawals           uint64    `json:"withdrawals"`
 	WithdrawalsAmount     uint64    `json:"withdrawals_amount"`
+}
+
+func deriveActiveEpochs(
+	spec beacon.Spec, fromEpoch, toEpoch, activationEpoch, exitEpoch phase0.Epoch,
+) phase0.Epoch {
+	activeEpochs := toEpoch - fromEpoch + 1
+	if activationEpoch > fromEpoch {
+		if activationEpoch > toEpoch {
+			activeEpochs = 0
+		} else {
+			activeEpochs -= activationEpoch - fromEpoch
+		}
+	}
+	if exitEpoch != spec.FarFutureEpoch && exitEpoch <= toEpoch {
+		if exitEpoch <= fromEpoch {
+			activeEpochs = 0
+		} else {
+			activeEpochs -= toEpoch - exitEpoch + 1
+		}
+	}
+	return activeEpochs
 }

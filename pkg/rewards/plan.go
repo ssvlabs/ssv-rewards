@@ -3,15 +3,17 @@ package rewards
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 	"time"
 
+	"github.com/bloxapp/ssv-rewards/pkg/precise"
 	"gopkg.in/yaml.v3"
 )
 
-const (
+var (
 	// validatorETHBalance is the ETH balance of an Ethereum validator.
-	validatorETHBalance = 32
+	validatorETHBalance = precise.NewETH64(32)
 )
 
 type Plan struct {
@@ -67,7 +69,7 @@ func (r *Plan) validate() error {
 func (r *Plan) ValidatorRewards(
 	period Period,
 	participants int,
-) (daily, monthly, annual float64, err error) {
+) (daily, monthly, annual *big.Int, err error) {
 	tier, err := r.Tier(participants)
 	if err != nil {
 		err = fmt.Errorf("failed to determine tier: %w", err)
@@ -75,9 +77,20 @@ func (r *Plan) ValidatorRewards(
 	}
 	for _, round := range r.Rounds {
 		if round.Period == period {
-			annual = (validatorETHBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost
-			monthly = annual / 12
-			daily = monthly / float64(period.Days())
+			// (validatorETHBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost
+			annualETH := precise.NewETH(nil).Mul(validatorETHBalance, round.ETHAPR)
+			annualETH.Quo(annualETH, round.SSVETH)
+			annualETH.Mul(annualETH, tier.APRBoost)
+			annual = annualETH.Wei()
+
+			// annual / 12
+			monthlyETH := precise.NewETH(nil).Quo(annualETH, precise.NewETH64(12))
+			monthly = monthlyETH.Wei()
+
+			// monthly / period.Days()
+			dailyETH := precise.NewETH(nil).
+				Quo(monthlyETH, precise.NewETH64(float64(period.Days())))
+			daily = dailyETH.Wei()
 			return
 		}
 	}
@@ -106,9 +119,9 @@ type Criteria struct {
 }
 
 type Round struct {
-	Period Period  `yaml:"period"`
-	ETHAPR float64 `yaml:"eth_apr"`
-	SSVETH float64 `yaml:"ssv_eth"`
+	Period Period       `yaml:"period"`
+	ETHAPR *precise.ETH `yaml:"eth_apr"`
+	SSVETH *precise.ETH `yaml:"ssv_eth"`
 }
 
 type Rounds []Round
@@ -118,8 +131,8 @@ func (r Rounds) Less(i, j int) bool { return time.Time(r[i].Period).Before(time.
 func (r Rounds) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 
 type Tier struct {
-	MaxParticipants int     `yaml:"max_participants"`
-	APRBoost        float64 `yaml:"apr_boost"`
+	MaxParticipants int          `yaml:"max_participants"`
+	APRBoost        *precise.ETH `yaml:"apr_boost"`
 }
 
 type Tiers []Tier
