@@ -107,7 +107,7 @@ This produces the following documents under the `./rewards` directory:
 
 After calculating the reward distribution, you may merkleize the rewards for a specific round.
 
-1. Copy the file at `./rewards/<year>-<month>/cumulative.json` over to `./scripts/merkle-generator/scripts/input-1.json`.
+1. Copy the file at `./rewards/<year>-<month>/cumulative.json` over to `./scripts/merkle-generator/scripts/input_1.json`.
 2. Run the merkleization script:
    ```bash
    cd scripts/merkle-generator
