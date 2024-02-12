@@ -7,6 +7,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
 	"github.com/carlmjohnson/requests"
 	"golang.org/x/time/rate"
@@ -54,6 +55,7 @@ func (m *Client) ValidatorPerformance(
 		}
 		var resp response
 		err := requests.URL(m.endpoint).
+			Client(httpretry.Client).
 			Pathf("/api/v1/validator/stats/%d", index).
 			Param("apikey", m.apiKey).
 			ToJSON(&resp).

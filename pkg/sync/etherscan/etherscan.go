@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/carlmjohnson/requests"
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/time/rate"
@@ -59,6 +60,7 @@ func (c *Client) ContractCreation(
 		Result  json.RawMessage
 	}
 	err := requests.URL("https://api.etherscan.io").
+		Client(httpretry.Client).
 		Path("/api").
 		Param("module", "contract").
 		Param("action", "getcontractcreation").

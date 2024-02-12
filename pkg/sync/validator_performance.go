@@ -18,6 +18,7 @@ import (
 
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
 	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/schollz/progressbar/v3"
@@ -216,6 +217,7 @@ func SyncValidatorPerformance(
 				url += "/"
 			}
 			err := requests.URL(url).
+				Client(httpretry.Client).
 				Pathf("%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
 				ToJSON(&resp).
 				Fetch(ctx)

@@ -21,6 +21,7 @@ require (
 	github.com/volatiletech/null/v8 v8.1.2
 	github.com/volatiletech/sqlboiler/v4 v4.15.0
 	github.com/volatiletech/strmangle v0.0.5
+	github.com/ybbus/httpretry v1.0.2
 	go.uber.org/zap v1.24.0
 	golang.org/x/exp v0.0.0-20230810033253-352e893a4cad
 	golang.org/x/time v0.4.0
