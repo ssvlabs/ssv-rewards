@@ -75,6 +75,8 @@ Synchronize validator activity and performance:
 docker-compose run --rm sync
 ```
 
+_This should sync validator performance up until 2 days ago (UTC) or until the end of the last period in `rewards.yaml` (whichever is lower). Therefore, in order to sync the last month, waiting until the 3rd of this month is required._
+
 _This might take a while, depending on how long ago the SSV contract was deployed and how many validators there are._
 
 ### Calculation
