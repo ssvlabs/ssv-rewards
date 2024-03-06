@@ -59,7 +59,7 @@ func (c *Client) ContractCreation(
 		Message string
 		Result  json.RawMessage
 	}
-	err := requests.URL("https://api.etherscan.io").
+	err := requests.URL(c.endpoint).
 		Client(httpretry.Client).
 		Path("/api").
 		Param("module", "contract").
