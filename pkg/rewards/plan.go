@@ -118,10 +118,11 @@ func (p *Plan) Tier(period Period, participants int) (*Tier, error) {
 	}
 	var mechanics *Mechanics
 	for _, m := range p.Mechanics {
-		if time.Time(m.Since).Before(time.Time(period)) {
+		if m.Since.FirstDay().After(period.FirstDay()) {
 			break
 		}
-		mechanics = &m
+		cpy := m
+		mechanics = &cpy
 	}
 	if mechanics == nil {
 		return nil, errors.New("mechanics not found for the given period")

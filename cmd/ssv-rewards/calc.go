@@ -170,7 +170,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		// Calculate appropriate tier and rewards.
 		tier, err := c.plan.Tier(round.Period, len(validatorParticipations))
 		if err != nil {
-			return fmt.Errorf("failed to get tier: %w", err)
+			return fmt.Errorf("failed to get tier (period: %s): %w", round.Period, err)
 		}
 		dailyReward, monthlyReward, annualReward, err := c.plan.ValidatorRewards(
 			round.Period,
