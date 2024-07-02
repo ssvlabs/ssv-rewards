@@ -17,9 +17,10 @@ var (
 )
 
 type Plan struct {
-	Criteria Criteria `yaml:"criteria"`
-	Tiers    Tiers    `yaml:"tiers"`
-	Rounds   Rounds   `yaml:"rounds"`
+	Version   int            `yaml:"version"`
+	Criteria  Criteria       `yaml:"criteria"`
+	Mechanics MechanicsSlice `yaml:"mechanics"`
+	Rounds    Rounds         `yaml:"rounds"`
 }
 
 // ParsePlan parses the given YAML document into a Plan.
@@ -35,19 +36,32 @@ func ParsePlan(data []byte) (*Plan, error) {
 }
 
 func (r *Plan) validate() error {
-	// Tiers.
-	if len(r.Tiers) == 0 {
-		return errors.New("missing tiers")
+	// Mechanics.
+	if len(r.Mechanics) == 0 {
+		return errors.New("missing mechanics")
 	}
-	if !sort.IsSorted(r.Tiers) {
-		return errors.New("tiers are not sorted by max participants")
+	if !sort.IsSorted(r.Mechanics) {
+		return errors.New("mechanics are not sorted by period")
 	}
-	if r.Tiers[0].MaxParticipants == 0 {
-		return errors.New("max participants must be positive")
-	}
-	for i := 1; i < len(r.Tiers); i++ {
-		if r.Tiers[i-1].MaxParticipants == r.Tiers[i].MaxParticipants {
-			return fmt.Errorf("duplicate tier: %d", r.Tiers[i].MaxParticipants)
+	for _, mechanics := range r.Mechanics {
+		if time.Time(mechanics.Since).IsZero() {
+			return errors.New("zero period in mechanics")
+		}
+		if len(mechanics.Tiers) == 0 {
+			return errors.New("missing tiers in mechanics")
+		}
+		if !sort.IsSorted(mechanics.Tiers) {
+			return errors.New("tiers are not sorted by max participants in mechanics")
+		}
+		if mechanics.Tiers[0].MaxParticipants == 0 {
+			return errors.New("max participants must be positive in mechanics")
+		}
+		if len(mechanics.Tiers) > 1 {
+			for i := 1; i < len(mechanics.Tiers); i++ {
+				if mechanics.Tiers[i-1].MaxParticipants == mechanics.Tiers[i].MaxParticipants {
+					return fmt.Errorf("duplicate tier: %d in mechanics", mechanics.Tiers[i].MaxParticipants)
+				}
+			}
 		}
 	}
 
@@ -70,7 +84,7 @@ func (r *Plan) ValidatorRewards(
 	period Period,
 	participants int,
 ) (daily, monthly, annual *big.Int, err error) {
-	tier, err := r.Tier(participants)
+	tier, err := r.Tier(period, participants)
 	if err != nil {
 		err = fmt.Errorf("failed to determine tier: %w", err)
 		return
@@ -98,14 +112,24 @@ func (r *Plan) ValidatorRewards(
 	return
 }
 
-func (p *Plan) Tier(participants int) (*Tier, error) {
+func (p *Plan) Tier(period Period, participants int) (*Tier, error) {
 	if participants <= 0 {
 		return nil, errors.New("participants must be positive")
 	}
-	if !sort.IsSorted(p.Tiers) {
+	var mechanics *Mechanics
+	for _, m := range p.Mechanics {
+		if time.Time(m.Since).Before(time.Time(period)) {
+			break
+		}
+		mechanics = &m
+	}
+	if mechanics == nil {
+		return nil, errors.New("mechanics not found for the given period")
+	}
+	if !sort.IsSorted(mechanics.Tiers) {
 		return nil, errors.New("tiers aren't sorted")
 	}
-	for _, tier := range p.Tiers {
+	for _, tier := range mechanics.Tiers {
 		if participants <= tier.MaxParticipants {
 			return &tier, nil
 		}
@@ -129,6 +153,19 @@ type Rounds []Round
 func (r Rounds) Len() int           { return len(r) }
 func (r Rounds) Less(i, j int) bool { return time.Time(r[i].Period).Before(time.Time(r[j].Period)) }
 func (r Rounds) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
+
+type MechanicsSlice []Mechanics
+
+func (m MechanicsSlice) Len() int { return len(m) }
+func (m MechanicsSlice) Less(i, j int) bool {
+	return time.Time(m[i].Since).Before(time.Time(m[j].Since))
+}
+func (m MechanicsSlice) Swap(i, j int) { m[i], m[j] = m[j], m[i] }
+
+type Mechanics struct {
+	Since Period `yaml:"since"`
+	Tiers Tiers  `yaml:"tiers"`
+}
 
 type Tier struct {
 	MaxParticipants int          `yaml:"max_participants"`

@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS validator_events (
 CREATE TABLE IF NOT EXISTS deployers (
 	owner_address TEXT NOT NULL,
 	deployer_address TEXT NOT NULL,
+	gnosis_safe BOOLEAN NOT NULL,
 	tx_hash TEXT NOT NULL,
 	PRIMARY KEY (owner_address)
 );
