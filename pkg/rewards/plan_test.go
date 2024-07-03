@@ -54,7 +54,7 @@ rounds:
 			MinAttestationsPerDay: 202,
 			MinDecidedsPerDay:     22,
 		},
-		Mechanics: MechanicsSlice{
+		Mechanics: MechanicsList{
 			{
 				Since: NewPeriod(2023, time.July),
 				Tiers: Tiers{
@@ -113,13 +113,13 @@ func TestPlan_Validate(t *testing.T) {
 		},
 		{
 			name:        "zero period in mechanics",
-			plan:        &Plan{Mechanics: MechanicsSlice{{}}},
+			plan:        &Plan{Mechanics: MechanicsList{{}}},
 			expectedErr: "zero period in mechanics",
 		},
 		{
 			name: "mechanics are not sorted",
 			plan: &Plan{
-				Mechanics: MechanicsSlice{
+				Mechanics: MechanicsList{
 					{Since: NewPeriod(2020, 2)},
 					{Since: NewPeriod(2020, 1)},
 				},
@@ -129,7 +129,7 @@ func TestPlan_Validate(t *testing.T) {
 		{
 			name: "missing tiers",
 			plan: &Plan{
-				Mechanics: MechanicsSlice{
+				Mechanics: MechanicsList{
 					{Since: NewPeriod(2020, 1)},
 				},
 			},
@@ -138,7 +138,7 @@ func TestPlan_Validate(t *testing.T) {
 		{
 			name: "tiers not sorted",
 			plan: &Plan{
-				Mechanics: MechanicsSlice{
+				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
 						Tiers: Tiers{{MaxParticipants: 2}, {MaxParticipants: 1}},
@@ -151,7 +151,7 @@ func TestPlan_Validate(t *testing.T) {
 		{
 			name: "duplicate tier",
 			plan: &Plan{
-				Mechanics: MechanicsSlice{
+				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
 						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: 1}},
@@ -164,7 +164,7 @@ func TestPlan_Validate(t *testing.T) {
 		{
 			name: "zero max participants",
 			plan: &Plan{
-				Mechanics: MechanicsSlice{
+				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
 						Tiers: Tiers{{MaxParticipants: 0}},
@@ -176,13 +176,13 @@ func TestPlan_Validate(t *testing.T) {
 		},
 		{
 			name:        "missing rounds",
-			plan:        &Plan{Mechanics: MechanicsSlice{{Since: NewPeriod(2020, 1), Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}}}}},
+			plan:        &Plan{Mechanics: MechanicsList{{Since: NewPeriod(2020, 1), Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}}}}},
 			expectedErr: "missing rounds",
 		},
 		{
 			name: "rounds not sorted",
 			plan: &Plan{
-				Mechanics: MechanicsSlice{
+				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
 						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},
@@ -195,7 +195,7 @@ func TestPlan_Validate(t *testing.T) {
 		{
 			name: "duplicate round",
 			plan: &Plan{
-				Mechanics: MechanicsSlice{
+				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
 						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},
@@ -208,7 +208,7 @@ func TestPlan_Validate(t *testing.T) {
 		{
 			name: "valid plan",
 			plan: &Plan{
-				Mechanics: MechanicsSlice{
+				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
 						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},

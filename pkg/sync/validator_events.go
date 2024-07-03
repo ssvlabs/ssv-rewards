@@ -411,7 +411,15 @@ func recordHandledEvents(
 						GnosisSafe:      safe != nil,
 						TXHash:          hex.EncodeToString(contractCreations[0].TxHash),
 					}
-					if err := deployer.Insert(ctx, db, boil.Infer()); err != nil {
+					err = deployer.Upsert(
+						ctx,
+						db,
+						true,
+						[]string{"owner_address"},
+						boil.Whitelist("deployer_address", "gnosis_safe", "tx_hash"),
+						boil.Infer(),
+					)
+					if err != nil {
 						return fmt.Errorf("failed to upsert deployer: %w", err)
 					}
 				}

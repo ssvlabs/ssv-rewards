@@ -46,7 +46,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION active_days_by_recipient(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
+CREATE OR REPLACE FUNCTION active_days_by_recipient(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL, gnosis_safe_support BOOLEAN DEFAULT FALSE)
 RETURNS TABLE (
     recipient_address TEXT,
     is_deployer BOOLEAN,
@@ -61,7 +61,7 @@ BEGIN
         SUM(ado.validators)::BIGINT AS validators,
         SUM(ado.active_days)::BIGINT AS active_days
     FROM active_days_by_owner(_provider, min_attestations, min_decideds, from_period, to_period) ado
-    LEFT JOIN deployers d ON ado.owner_address = d.owner_address
+    LEFT JOIN deployers d ON ado.owner_address = d.owner_address AND (NOT gnosis_safe_support OR NOT d.gnosis_safe)
     GROUP BY COALESCE(d.deployer_address, ado.owner_address);
 END;
 $$ LANGUAGE plpgsql STABLE;

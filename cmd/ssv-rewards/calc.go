@@ -410,13 +410,20 @@ func (c *CalcCmd) recipientParticipations(
 	ctx context.Context,
 	period rewards.Period,
 ) ([]*RecipientParticipation, error) {
+	mechanics, err := c.plan.Mechanics.At(period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mechanics: %w", err)
+	}
+	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
 	var rewards []*RecipientParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4)",
+		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
 		c.plan.Criteria.MinDecidedsPerDay,
 		time.Time(period),
+		nil,
+		gnosisSafeSupport,
 	).Bind(ctx, c.db, &rewards)
 }
 

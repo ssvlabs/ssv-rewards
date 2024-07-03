@@ -17,10 +17,10 @@ var (
 )
 
 type Plan struct {
-	Version   int            `yaml:"version"`
-	Criteria  Criteria       `yaml:"criteria"`
-	Mechanics MechanicsSlice `yaml:"mechanics"`
-	Rounds    Rounds         `yaml:"rounds"`
+	Version   int           `yaml:"version"`
+	Criteria  Criteria      `yaml:"criteria"`
+	Mechanics MechanicsList `yaml:"mechanics"`
+	Rounds    Rounds        `yaml:"rounds"`
 }
 
 // ParsePlan parses the given YAML document into a Plan.
@@ -46,6 +46,9 @@ func (r *Plan) validate() error {
 	for _, mechanics := range r.Mechanics {
 		if time.Time(mechanics.Since).IsZero() {
 			return errors.New("zero period in mechanics")
+		}
+		if err := mechanics.Features.Validate(); err != nil {
+			return fmt.Errorf("failed to validate features: %w", err)
 		}
 		if len(mechanics.Tiers) == 0 {
 			return errors.New("missing tiers in mechanics")
@@ -116,16 +119,9 @@ func (p *Plan) Tier(period Period, participants int) (*Tier, error) {
 	if participants <= 0 {
 		return nil, errors.New("participants must be positive")
 	}
-	var mechanics *Mechanics
-	for _, m := range p.Mechanics {
-		if m.Since.FirstDay().After(period.FirstDay()) {
-			break
-		}
-		cpy := m
-		mechanics = &cpy
-	}
-	if mechanics == nil {
-		return nil, errors.New("mechanics not found for the given period")
+	mechanics, err := p.Mechanics.At(period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mechanics: %w", err)
 	}
 	if !sort.IsSorted(mechanics.Tiers) {
 		return nil, errors.New("tiers aren't sorted")
@@ -154,27 +150,3 @@ type Rounds []Round
 func (r Rounds) Len() int           { return len(r) }
 func (r Rounds) Less(i, j int) bool { return time.Time(r[i].Period).Before(time.Time(r[j].Period)) }
 func (r Rounds) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
-
-type MechanicsSlice []Mechanics
-
-func (m MechanicsSlice) Len() int { return len(m) }
-func (m MechanicsSlice) Less(i, j int) bool {
-	return time.Time(m[i].Since).Before(time.Time(m[j].Since))
-}
-func (m MechanicsSlice) Swap(i, j int) { m[i], m[j] = m[j], m[i] }
-
-type Mechanics struct {
-	Since Period `yaml:"since"`
-	Tiers Tiers  `yaml:"tiers"`
-}
-
-type Tier struct {
-	MaxParticipants int          `yaml:"max_participants"`
-	APRBoost        *precise.ETH `yaml:"apr_boost"`
-}
-
-type Tiers []Tier
-
-func (t Tiers) Len() int           { return len(t) }
-func (t Tiers) Less(i, j int) bool { return t[i].MaxParticipants < t[j].MaxParticipants }
-func (t Tiers) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }

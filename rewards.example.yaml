@@ -6,6 +6,7 @@ criteria:
 
 mechanics:
   - since: 2023-07
+    features:
     tiers:
     - max_participants: 2000
       apr_boost: 0.5
@@ -17,7 +18,10 @@ mechanics:
       apr_boost: 0.2
     - max_participants: 30000
       apr_boost: 0.1
+
   - since: 2023-09
+    features:
+      - gnosis_safe
     tiers:
     - max_participants: 2000
       apr_boost: 0.05
