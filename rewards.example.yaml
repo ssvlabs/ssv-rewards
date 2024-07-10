@@ -1,14 +1,38 @@
-tiers:
-  - max_participants: 2000
-    apr_boost: 0.5
-  - max_participants: 5000
-    apr_boost: 0.4
-  - max_participants: 10000
-    apr_boost: 0.3
-  - max_participants: 15000
-    apr_boost: 0.2
-  - max_participants: 30000
-    apr_boost: 0.1
+version: 2
+
+criteria:
+  min_attestations_per_day: 202
+  min_decideds_per_day: 22
+
+mechanics:
+  - since: 2023-07
+    features:
+    tiers:
+    - max_participants: 2000
+      apr_boost: 0.5
+    - max_participants: 5000
+      apr_boost: 0.4
+    - max_participants: 10000
+      apr_boost: 0.3
+    - max_participants: 15000
+      apr_boost: 0.2
+    - max_participants: 30000
+      apr_boost: 0.1
+
+  - since: 2023-09
+    features:
+      - gnosis_safe
+    tiers:
+    - max_participants: 2000
+      apr_boost: 0.05
+    - max_participants: 5000
+      apr_boost: 0.04
+    - max_participants: 10000
+      apr_boost: 0.03
+    - max_participants: 15000
+      apr_boost: 0.02
+    - max_participants: 30000
+      apr_boost: 0.01
 
 rounds:
   - period: 2023-07
@@ -18,41 +42,8 @@ rounds:
     eth_apr: 0.044
     ssv_eth: 0.0092352941
   - period: 2023-09
-    eth_apr:
-    ssv_eth:
+    eth_apr: 0.049
+    ssv_eth: 0.0092352941
   - period: 2023-10
-    eth_apr:
-    ssv_eth:
-  - period: 2023-11
-    eth_apr:
-    ssv_eth:
-  - period: 2023-12
-    eth_apr:
-    ssv_eth:
-  - period: 2024-01
-    eth_apr:
-    ssv_eth:
-  - period: 2024-02
-    eth_apr:
-    ssv_eth:
-  - period: 2024-03
-    eth_apr:
-    ssv_eth:
-  - period: 2024-04
-    eth_apr:
-    ssv_eth:
-  - period: 2024-05
-    eth_apr:
-    ssv_eth:
-  - period: 2024-06
-    eth_apr:
-    ssv_eth:
-  - period: 2024-07
-    eth_apr:
-    ssv_eth:
-  - period: 2024-08
-    eth_apr:
-    ssv_eth:
-  - period: 2024-09
-    ssv_eth:
-    eth_apr:
+    eth_apr: 0.049
+    ssv_eth: 0.0092352941

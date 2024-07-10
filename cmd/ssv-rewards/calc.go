@@ -168,9 +168,9 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		// Calculate appropriate tier and rewards.
-		tier, err := c.plan.Tier(len(validatorParticipations))
+		tier, err := c.plan.Tier(round.Period, len(validatorParticipations))
 		if err != nil {
-			return fmt.Errorf("failed to get tier: %w", err)
+			return fmt.Errorf("failed to get tier (period: %s): %w", round.Period, err)
 		}
 		dailyReward, monthlyReward, annualReward, err := c.plan.ValidatorRewards(
 			round.Period,
@@ -410,13 +410,20 @@ func (c *CalcCmd) recipientParticipations(
 	ctx context.Context,
 	period rewards.Period,
 ) ([]*RecipientParticipation, error) {
+	mechanics, err := c.plan.Mechanics.At(period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mechanics: %w", err)
+	}
+	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
 	var rewards []*RecipientParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4)",
+		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
 		c.plan.Criteria.MinDecidedsPerDay,
 		time.Time(period),
+		nil,
+		gnosisSafeSupport,
 	).Bind(ctx, c.db, &rewards)
 }
 

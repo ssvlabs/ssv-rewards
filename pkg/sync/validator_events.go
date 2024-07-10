@@ -17,6 +17,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/etherscan"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/gnosis"
 	spectypes "github.com/bloxapp/ssv-spec/types"
 	"github.com/bloxapp/ssv/eth/contract"
 	"github.com/bloxapp/ssv/eth/eventhandler"
@@ -47,6 +48,7 @@ func SyncValidatorEvents(
 	ethClient *ethclient.Client,
 	cl eth2client.Service,
 	etherscan *etherscan.Client,
+	gnosisClient *gnosis.Client,
 ) error {
 	// Fetch events from the database, organize into a channel of BlockLogs
 	// and process them using SSV's EventHandler.
@@ -107,7 +109,7 @@ func SyncValidatorEvents(
 	// Spawn handled event recorder.
 	eventTraces := make(chan eventhandler.EventTrace, 1024)
 	backgroundTasks.Go(func(ctx context.Context) (err error) {
-		if err := recordHandledEvents(ctx, logger, db, nodeStorage, ethClient, etherscan, eventTraces); err != nil {
+		if err := recordHandledEvents(ctx, logger, db, nodeStorage, ethClient, etherscan, gnosisClient, eventTraces); err != nil {
 			return fmt.Errorf("failed to record handled event: %w", err)
 		}
 		return nil
@@ -280,6 +282,7 @@ func recordHandledEvents(
 	nodeStorage operatorstorage.Storage,
 	ethClient *ethclient.Client,
 	etherscan *etherscan.Client,
+	gnosisClient *gnosis.Client,
 	eventTraces <-chan eventhandler.EventTrace,
 ) error {
 	recordedEvents := 0
@@ -396,12 +399,27 @@ func recordHandledEvents(
 					if !bytes.Equal(contractCreations[0].ContractAddress, ownerAddress.Bytes()) {
 						return fmt.Errorf("contract creation mismatch")
 					}
+					safe, err := gnosisClient.Safe(ctx, ownerAddress)
+					if err == gnosis.ErrNotFound {
+						safe = nil
+					} else if err != nil {
+						return fmt.Errorf("failed to get safe: %w", err)
+					}
 					deployer := models.Deployer{
 						OwnerAddress:    hex.EncodeToString(ownerAddress[:]),
 						DeployerAddress: hex.EncodeToString(contractCreations[0].ContractCreator),
+						GnosisSafe:      safe != nil,
 						TXHash:          hex.EncodeToString(contractCreations[0].TxHash),
 					}
-					if err := deployer.Insert(ctx, db, boil.Infer()); err != nil {
+					err = deployer.Upsert(
+						ctx,
+						db,
+						true,
+						[]string{"owner_address"},
+						boil.Whitelist("deployer_address", "gnosis_safe", "tx_hash"),
+						boil.Infer(),
+					)
+					if err != nil {
 						return fmt.Errorf("failed to upsert deployer: %w", err)
 					}
 				}

@@ -6,7 +6,7 @@ add-enum-types = true
 [psql]
   dbname = "ssv-rewards"
   host   = "localhost"
-  port   = 5432
+  port   = 5435
   user   = "user"
   pass   = "1234"
   schema = "public"

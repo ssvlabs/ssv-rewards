@@ -35,22 +35,38 @@ BEACONCHA_REQUESTS_PER_MINUTE=20 # Adjust according to your Beaconcha.in API pla
 ETHERSCAN_API_ENDPOINT=https://api.etherscan.io
 ETHERSCAN_API_KEY= # Optional
 ETHERSCAN_REQUESTS_PER_SECOND=0.1 # Adjust according to your Etherscan API plan
+
+# Gnosis API
+GNOSIS_API_ENDPOINT=https://safe-transaction-mainnet.safe.global
 ```
 
 Edit `rewards.yaml` to match [the specifications](https://docs.google.com/document/d/1pcr8QVcq9eZfiOJGrm5OsE9JAqdQy1F8Svv1xgecjNY):
 
 ```yaml
+version: 2
+
 criteria:
   min_attestations_per_day: 202
   min_decideds_per_day: 22
 
-tiers:
-  # Tiers apply to rounds below the participation threshold.
-  - max_participants: 2000 # Up to 2,000 validators
-    apr_boost: 0.5 # Fraction of ETH APR to reward in SSV tokens
-  # ...
-  - max_participants: 30000
-    apr_boost: 0.1
+mechanics:
+  - since: 2023-07
+    features:
+    tiers:
+      - max_participants: 2000 # Effective at up to 2,000 validators
+        apr_boost: 0.5 # Fraction of ETH APR to reward in SSV tokens
+      # ...
+      - max_participants: 30000
+        apr_boost: 0.1
+  - since: 2023-11
+    features:
+      - gnosis_safe
+    tiers:
+      - max_participants: 2000
+        apr_boost: 0.25
+      # ...
+      - max_participants: 30000
+        apr_boost: 0.05
 
 rounds:
   - period: 2023-07 # Designated period (year-month)
