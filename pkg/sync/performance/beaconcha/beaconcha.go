@@ -53,6 +53,8 @@ func (m *Client) ValidatorPerformance(
 		if err := m.rateLimiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("failed to wait for rate limiter: %w", err)
 		}
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
 		var resp response
 		err := requests.URL(m.endpoint).
 			Client(httpretry.Client).

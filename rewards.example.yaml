@@ -21,6 +21,9 @@ mechanics:
 
   - since: 2023-09
     features:
+      # Rewards are paid to the owner address, unless it's a contract, in which case
+      # they are paid to the deployer address. Enabling gnosis_safe rewards the owner
+      # address despite it being a contract, when the contract is a Gnosis Safe.
       - gnosis_safe
     tiers:
     - max_participants: 2000
@@ -33,6 +36,11 @@ mechanics:
       apr_boost: 0.02
     - max_participants: 30000
       apr_boost: 0.01
+    # Redirect rewards to different addresses. The left-hand side is the owner address,
+    # and the right-hand side is the reward recipient address. Do not specify deployer
+    # addresses on the left-hand side, only owner addresses.
+    reward_redirects:
+      "0x1234567890abcdef1234567890abcdef12345678": "0x1234567890abcdef1234567890abcdef12345678"
 
 rounds:
   - period: 2023-07

@@ -18,6 +18,7 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/gocarina/gocsv"
+	"github.com/volatiletech/sqlboiler/v4/boil"
 	"github.com/volatiletech/sqlboiler/v4/queries"
 	"go.uber.org/zap"
 	"golang.org/x/exp/maps"
@@ -415,16 +416,78 @@ func (c *CalcCmd) recipientParticipations(
 		return nil, fmt.Errorf("failed to get mechanics: %w", err)
 	}
 	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
+	rewardRedirectsSupport := len(mechanics.RewardRedirects) > 0
+
+	if rewardRedirectsSupport {
+		err := c.populateRewardRedirectsTable(ctx, mechanics.RewardRedirects)
+		if err != nil {
+			return nil, fmt.Errorf("failed to populate reward redirects table: %w", err)
+		}
+	}
+
 	var rewards []*RecipientParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6)",
+		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
 		c.plan.Criteria.MinDecidedsPerDay,
 		time.Time(period),
 		nil,
 		gnosisSafeSupport,
+		rewardRedirectsSupport,
 	).Bind(ctx, c.db, &rewards)
+}
+
+func (c *CalcCmd) populateRewardRedirectsTable(
+	ctx context.Context,
+	redirects rewards.Redirects,
+) error {
+	// Truncate the reward_redirects table.
+	_, err := queries.Raw(
+		"TRUNCATE TABLE "+models.TableNames.RewardRedirects,
+	).ExecContext(ctx, c.db)
+	if err != nil {
+		return fmt.Errorf("failed to truncate reward_redirects: %w", err)
+	}
+
+	// Verify that the table is empty.
+	count, err := models.RewardRedirects().Count(ctx, c.db)
+	if err != nil {
+		return fmt.Errorf("failed to count reward_redirects: %w", err)
+	}
+	if count != 0 {
+		return fmt.Errorf("reward_redirects table was not truncated")
+	}
+
+	// Populate with given redirects.
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	for from, to := range redirects {
+		model := models.RewardRedirect{
+			FromAddress: from.String(),
+			ToAddress:   to.String(),
+		}
+		if err := model.Insert(ctx, tx, boil.Infer()); err != nil {
+			return fmt.Errorf("failed to insert rewards_redirect: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Verify that the table is populated.
+	count, err = models.RewardRedirects().Count(ctx, c.db)
+	if err != nil {
+		return fmt.Errorf("failed to count reward_redirects: %w", err)
+	}
+	if int(count) != len(redirects) {
+		return fmt.Errorf("reward_redirects table was not populated")
+	}
+
+	return nil
 }
 
 type Exclusion struct {
