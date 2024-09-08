@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	eth2client "github.com/attestantio/go-eth2-client"
@@ -202,10 +203,10 @@ func SyncValidatorPerformance(
 		}
 
 		// Insert ValidatorPerformance records.
-		pl := pool.New().WithContext(ctx).WithCancelOnError().WithFirstError()
+		dutyCountsPool := pool.New().WithContext(ctx).WithCancelOnError().WithFirstError()
 
 		var decideds = map[string]int{}
-		pl.Go(func(ctx context.Context) error {
+		dutyCountsPool.Go(func(ctx context.Context) error {
 			var resp struct {
 				Error      string
 				Validators map[string]struct {
@@ -216,13 +217,11 @@ func SyncValidatorPerformance(
 			if url[len(url)-1] != '/' {
 				url += "/"
 			}
-			logger.Debug("Fetching validator duties", zap.Time("from", fromDay), zap.Time("to", toDay))
 			err := requests.URL(url).
 				Client(httpretry.Client).
 				Pathf("%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
 				ToJSON(&resp).
 				Fetch(ctx)
-			logger.Debug("Fetched validator duties", zap.String("provider", providerType.String()))
 			if err != nil {
 				return fmt.Errorf("failed to get validator duties: %w", err)
 			}
@@ -235,9 +234,11 @@ func SyncValidatorPerformance(
 			return nil
 		})
 
+		performancesPool := pool.New().WithContext(ctx).WithCancelOnError().WithFirstError().WithMaxGoroutines(4)
 		var performances []*models.ValidatorPerformance
+		var performancesMutex sync.Mutex
 		for pubKey, activeValidator := range activeValidators {
-			pl.Go(func(ctx context.Context) error {
+			performancesPool.Go(func(ctx context.Context) error {
 				performance := models.ValidatorPerformance{
 					Provider:        providerType,
 					Day:             day,
@@ -270,10 +271,6 @@ func SyncValidatorPerformance(
 					performance.StartBeaconStatus = null.StringFrom(startState.String())
 					performance.EndBeaconStatus = null.StringFrom(endState.String())
 
-					logger.Debug(
-						"Fetching validator performance",
-						zap.Int("validator_index", int(validator.Index.Int)),
-					)
 					data, err := provider.ValidatorPerformance(
 						ctx,
 						spec,
@@ -284,7 +281,6 @@ func SyncValidatorPerformance(
 						phase0.Epoch(validator.BeaconExitEpoch.Int),
 						phase0.ValidatorIndex(validator.Index.Int),
 					)
-					logger.Debug("Fetched validator performance", zap.String("provider", providerType.String()))
 					if err != nil {
 						return fmt.Errorf("failed to get validator performance: %w", err)
 					}
@@ -318,14 +314,19 @@ func SyncValidatorPerformance(
 						}
 					}
 				}
+				performancesMutex.Lock()
 				performances = append(performances, &performance)
+				performancesMutex.Unlock()
 				return nil
 			})
 		}
 
 		// Wait for tasks to complete.
-		if err := pl.Wait(); err != nil {
-			return fmt.Errorf("failed waiting for tasks: %w", err)
+		if err := dutyCountsPool.Wait(); err != nil {
+			return fmt.Errorf("failed waiting for duty counts: %w", err)
+		}
+		if err := performancesPool.Wait(); err != nil {
+			return fmt.Errorf("failed waiting for validator performance: %w", err)
 		}
 
 		// Insert ValidatorPerformance records.
