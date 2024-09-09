@@ -203,9 +203,9 @@ func SyncValidatorPerformance(
 		}
 
 		// Insert ValidatorPerformance records.
+		start := time.Now()
 		dutyCountsPool := pool.New().WithContext(ctx).WithCancelOnError().WithFirstError()
-
-		var decideds = map[string]int{}
+		decideds := map[string]int{}
 		dutyCountsPool.Go(func(ctx context.Context) error {
 			var resp struct {
 				Error      string
@@ -238,6 +238,7 @@ func SyncValidatorPerformance(
 		var performances []*models.ValidatorPerformance
 		var performancesMutex sync.Mutex
 		for pubKey, activeValidator := range activeValidators {
+			pubKey, activeValidator := pubKey, activeValidator
 			performancesPool.Go(func(ctx context.Context) error {
 				performance := models.ValidatorPerformance{
 					Provider:        providerType,
@@ -325,11 +326,13 @@ func SyncValidatorPerformance(
 		if err := dutyCountsPool.Wait(); err != nil {
 			return fmt.Errorf("failed waiting for duty counts: %w", err)
 		}
+		dutyCountsDuration := time.Since(start)
 		if err := performancesPool.Wait(); err != nil {
 			return fmt.Errorf("failed waiting for validator performance: %w", err)
 		}
 
 		// Insert ValidatorPerformance records.
+		start = time.Now()
 		tx, err := db.Begin()
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
@@ -341,9 +344,10 @@ func SyncValidatorPerformance(
 			}
 
 			if err := performance.Insert(ctx, tx, boil.Infer()); err != nil {
-				return fmt.Errorf("failed to insert validator performance: %w", err)
+				return fmt.Errorf("failed to insert validator performance for %s at %s: %w", performance.PublicKey, performance.Day, err)
 			}
 		}
+		insertDuration := time.Since(start)
 
 		// Set the state's latest_validator_performance.
 		_, err = models.States().UpdateAll(ctx, db, models.M{"latest_validator_performance": day})
@@ -351,11 +355,20 @@ func SyncValidatorPerformance(
 			return fmt.Errorf("failed to update state: %w", err)
 		}
 
+		start = time.Now()
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
+		commitDuration := time.Since(start)
 		bar.Add(1)
 		fetchedDays++
+
+		logger.Debug("Fetched validator performance",
+			zap.Time("day", day),
+			zap.Duration("duty_counts_duration", dutyCountsDuration),
+			zap.Duration("insert_duration", insertDuration),
+			zap.Duration("commit_duration", commitDuration),
+		)
 	}
 	bar.Clear()
 	logger.Info("Fetched validator performance",
