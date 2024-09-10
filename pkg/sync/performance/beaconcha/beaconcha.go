@@ -55,7 +55,7 @@ func (m *Client) ValidatorPerformance(
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		defer cancel()
 		var resp response
 		err := requests.URL(m.endpoint).
