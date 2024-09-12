@@ -48,10 +48,13 @@ func (f Features) Validate() error {
 	return nil
 }
 
+type Redirects map[ExecutionAddress]ExecutionAddress
+
 type Mechanics struct {
-	Since    Period   `yaml:"since"`
-	Features Features `yaml:"features"`
-	Tiers    Tiers    `yaml:"tiers"`
+	Since           Period    `yaml:"since"`
+	Features        Features  `yaml:"features"`
+	Tiers           Tiers     `yaml:"tiers"`
+	RewardRedirects Redirects `yaml:"reward_redirects"`
 }
 
 type Tier struct {

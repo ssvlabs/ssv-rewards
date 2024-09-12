@@ -60,6 +60,12 @@ CREATE TABLE IF NOT EXISTS deployers (
 	PRIMARY KEY (owner_address)
 );
 
+CREATE TABLE IF NOT EXISTS reward_redirects (
+	from_address TEXT NOT NULL,
+	to_address TEXT NOT NULL,
+	PRIMARY KEY (from_address)
+);
+
 CREATE INDEX IF NOT EXISTS idx_validator_events_public_key ON validator_events(public_key);
 
 DO $$ BEGIN

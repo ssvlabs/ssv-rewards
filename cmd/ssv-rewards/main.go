@@ -17,7 +17,7 @@ import (
 
 type Globals struct {
 	LogLevel string `env:"LOG_LEVEL" enum:"debug,info,warn,error" default:"info"                                                            help:"Log level."`
-	Postgres string `env:"POSTGRES"                               default:"postgres://user:1234@localhost:5432/ssv-rewards?sslmode=disable" help:"PostgreSQL connection string."`
+	Postgres string `env:"POSTGRES"                               default:"postgres://user:1234@localhost:5435/ssv-rewards?sslmode=disable" help:"PostgreSQL connection string."`
 	Network  string `env:"NETWORK"                                default:"mainnet"                                                         help:"SSV network name."`
 }
 

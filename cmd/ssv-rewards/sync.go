@@ -256,7 +256,7 @@ func (c *SyncCmd) Run(
 		performanceProvider = beaconcha.New(
 			c.BeaconchaEndpoint,
 			c.BeaconchaAPIKey,
-			float64(c.BeaconchaRequestsPerMinute)*0.95, // Safety margin.
+			float64(c.BeaconchaRequestsPerMinute)*0.666, // Safety margin.
 		)
 	default:
 		return fmt.Errorf("either e2m-endpoint or beaconcha-endpoint must be provided")

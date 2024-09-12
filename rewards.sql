@@ -1,6 +1,8 @@
 DROP FUNCTION IF EXISTS active_days_by_validator(provider_type, INTEGER, DATE, DATE);
 DROP FUNCTION IF EXISTS active_days_by_owner(provider_type, INTEGER, DATE, DATE);
 DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, DATE, DATE);
+DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN);
+DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN, BOOLEAN);
 DROP FUNCTION IF EXISTS inactive_days_by_validator(provider_type, INTEGER, DATE, DATE);
 
 CREATE OR REPLACE FUNCTION active_days_by_validator(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
@@ -46,7 +48,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION active_days_by_recipient(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL, gnosis_safe_support BOOLEAN DEFAULT FALSE)
+CREATE OR REPLACE FUNCTION active_days_by_recipient(
+    _provider provider_type, 
+    min_attestations INTEGER, 
+    min_decideds INTEGER, 
+    from_period DATE, 
+    to_period DATE DEFAULT NULL, 
+    gnosis_safe_support BOOLEAN DEFAULT FALSE, 
+    reward_redirects_support BOOLEAN DEFAULT FALSE
+)
 RETURNS TABLE (
     recipient_address TEXT,
     is_deployer BOOLEAN,
@@ -56,13 +66,22 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     SELECT
-        COALESCE(d.deployer_address, ado.owner_address) AS recipient_address,
+        COALESCE(
+            CASE WHEN reward_redirects_support THEN rr.to_address ELSE NULL END, 
+            d.deployer_address, 
+            ado.owner_address
+        ) AS recipient_address,
         BOOL_OR(d.deployer_address IS NOT NULL) AS is_deployer,
         SUM(ado.validators)::BIGINT AS validators,
         SUM(ado.active_days)::BIGINT AS active_days
     FROM active_days_by_owner(_provider, min_attestations, min_decideds, from_period, to_period) ado
     LEFT JOIN deployers d ON ado.owner_address = d.owner_address AND (NOT gnosis_safe_support OR NOT d.gnosis_safe)
-    GROUP BY COALESCE(d.deployer_address, ado.owner_address);
+    LEFT JOIN reward_redirects rr ON ado.owner_address = rr.from_address AND reward_redirects_support
+    GROUP BY COALESCE(
+        CASE WHEN reward_redirects_support THEN rr.to_address ELSE NULL END, 
+        d.deployer_address, 
+        ado.owner_address
+    );
 END;
 $$ LANGUAGE plpgsql STABLE;
 

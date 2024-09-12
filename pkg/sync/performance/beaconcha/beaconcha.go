@@ -3,6 +3,7 @@ package beaconcha
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -10,7 +11,6 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
 	"github.com/carlmjohnson/requests"
-	"golang.org/x/time/rate"
 )
 
 const (
@@ -18,21 +18,19 @@ const (
 )
 
 type Client struct {
-	endpoint    string
-	apiKey      string
-	rateLimiter *rate.Limiter
-	cache       map[phase0.ValidatorIndex][]dailyData
+	endpoint string
+	apiKey   string
+	ticker   *time.Ticker
+	cache    map[phase0.ValidatorIndex][]dailyData
+	cacheMu  sync.Mutex
 }
 
 func New(endpoint string, apiKey string, requestsPerMinute float64) *Client {
 	return &Client{
 		endpoint: endpoint,
 		apiKey:   apiKey,
-		rateLimiter: rate.NewLimiter(
-			rate.Every(time.Duration(float64(time.Minute)/requestsPerMinute)),
-			1,
-		),
-		cache: make(map[phase0.ValidatorIndex][]dailyData),
+		ticker:   time.NewTicker(time.Duration(float64(time.Minute) / requestsPerMinute)),
+		cache:    make(map[phase0.ValidatorIndex][]dailyData),
 	}
 }
 
@@ -47,12 +45,18 @@ func (m *Client) ValidatorPerformance(
 	fromEpoch, toEpoch, activationEpoch, exitEpoch phase0.Epoch,
 	index phase0.ValidatorIndex,
 ) (*performance.ValidatorPerformance, error) {
+	m.cacheMu.Lock()
 	data, ok := m.cache[index]
+	m.cacheMu.Unlock()
 	if !ok {
 		// Fetch from the Beaconcha API.
-		if err := m.rateLimiter.Wait(ctx); err != nil {
-			return nil, fmt.Errorf("failed to wait for rate limiter: %w", err)
+		select {
+		case <-m.ticker.C:
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
+		ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		defer cancel()
 		var resp response
 		err := requests.URL(m.endpoint).
 			Client(httpretry.Client).
@@ -69,7 +73,9 @@ func (m *Client) ValidatorPerformance(
 		data = resp.Data
 
 		// Cache the data.
+		m.cacheMu.Lock()
 		m.cache[index] = data
+		m.cacheMu.Unlock()
 	}
 	for _, d := range data {
 		if d.DayStart.UTC().Truncate(24*time.Hour) != day.UTC().Truncate(24*time.Hour) {
