@@ -386,11 +386,12 @@ func (c *CalcCmd) ownerParticipations(
 ) ([]*OwnerParticipation, error) {
 	var rewards []*OwnerParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_owner($1, $2, $3, $4)",
+		"SELECT * FROM active_days_by_owner($1, $2, $3, $4, $5)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
 		c.plan.Criteria.MinDecidedsPerDay,
 		time.Time(period),
+		false, // validator_redirects_support
 	).Bind(ctx, c.db, &rewards)
 }
 
@@ -416,8 +417,8 @@ func (c *CalcCmd) recipientParticipations(
 		return nil, fmt.Errorf("failed to get mechanics: %w", err)
 	}
 	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
-	rewardRedirectsSupport := len(mechanics.RewardRedirects) > 0
 
+	rewardRedirectsSupport := len(mechanics.RewardRedirects) > 0
 	if rewardRedirectsSupport {
 		err := c.populateRewardRedirectsTable(ctx, mechanics.RewardRedirects)
 		if err != nil {
@@ -425,9 +426,17 @@ func (c *CalcCmd) recipientParticipations(
 		}
 	}
 
+	validatorRedirectsSupport := len(mechanics.ValidatorRedirects) > 0
+	if validatorRedirectsSupport {
+		err := c.populateValidatorRedirectsTable(ctx, mechanics.ValidatorRedirects)
+		if err != nil {
+			return nil, fmt.Errorf("failed to populate reward redirects table: %w", err)
+		}
+	}
+
 	var rewards []*RecipientParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7)",
+		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
 		c.plan.Criteria.MinDecidedsPerDay,
@@ -435,6 +444,7 @@ func (c *CalcCmd) recipientParticipations(
 		nil,
 		gnosisSafeSupport,
 		rewardRedirectsSupport,
+		validatorRedirectsSupport,
 	).Bind(ctx, c.db, &rewards)
 }
 

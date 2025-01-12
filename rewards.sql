@@ -31,7 +31,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION active_days_by_owner(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
+CREATE OR REPLACE FUNCTION active_days_by_owner(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL, validator_redirects_support BOOLEAN DEFAULT FALSE)
 RETURNS TABLE (
     owner_address TEXT,
     validators BIGINT,
@@ -40,10 +40,14 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     SELECT
-        dr.owner_address,
+        COALESCE(
+            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END, 
+            dr.owner_address
+        ) AS recipient_address,
         COUNT(dr.public_key) AS number_of_validators,
         SUM(dr.active_days)::BIGINT AS active_days
     FROM active_days_by_validator(_provider, min_attestations, min_decideds, from_period, to_period) dr
+    LEFT JOIN validator_redirects rr ON dr.public_key = vr.from_address AND validator_redirects_support
     GROUP BY dr.owner_address;
 END;
 $$ LANGUAGE plpgsql STABLE;
@@ -55,7 +59,8 @@ CREATE OR REPLACE FUNCTION active_days_by_recipient(
     from_period DATE, 
     to_period DATE DEFAULT NULL, 
     gnosis_safe_support BOOLEAN DEFAULT FALSE, 
-    reward_redirects_support BOOLEAN DEFAULT FALSE
+    reward_redirects_support BOOLEAN DEFAULT FALSE, 
+    validator_redirects_support BOOLEAN DEFAULT FALSE
 )
 RETURNS TABLE (
     recipient_address TEXT,
@@ -74,7 +79,7 @@ BEGIN
         BOOL_OR(d.deployer_address IS NOT NULL) AS is_deployer,
         SUM(ado.validators)::BIGINT AS validators,
         SUM(ado.active_days)::BIGINT AS active_days
-    FROM active_days_by_owner(_provider, min_attestations, min_decideds, from_period, to_period) ado
+    FROM active_days_by_owner(_provider, min_attestations, min_decideds, from_period, to_period, validator_redirects_support) ado
     LEFT JOIN deployers d ON ado.owner_address = d.owner_address AND (NOT gnosis_safe_support OR NOT d.gnosis_safe)
     LEFT JOIN reward_redirects rr ON ado.owner_address = rr.from_address AND reward_redirects_support
     GROUP BY COALESCE(
