@@ -13,15 +13,16 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/bloxapp/ssv-rewards/pkg/models"
-	"github.com/bloxapp/ssv-rewards/pkg/precise"
-	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/gocarina/gocsv"
 	"github.com/volatiletech/sqlboiler/v4/boil"
 	"github.com/volatiletech/sqlboiler/v4/queries"
 	"go.uber.org/zap"
 	"golang.org/x/exp/maps"
+
+	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/precise"
+	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 )
 
 type CalcCmd struct {
@@ -386,12 +387,13 @@ func (c *CalcCmd) ownerParticipations(
 ) ([]*OwnerParticipation, error) {
 	var rewards []*OwnerParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_owner($1, $2, $3, $4, $5)",
-		c.PerformanceProvider,
-		c.plan.Criteria.MinAttestationsPerDay,
-		c.plan.Criteria.MinDecidedsPerDay,
-		time.Time(period),
-		false, // validator_redirects_support
+		"SELECT * FROM active_days_by_owner($1, $2, $3, $4, $5, $6)",
+		c.PerformanceProvider,                 // $1 -> provider_type
+		c.plan.Criteria.MinAttestationsPerDay, // $2 -> integer
+		c.plan.Criteria.MinDecidedsPerDay,     // $3 -> integer
+		time.Time(period),                     // $4 -> date (from_period)
+		nil,                                   // $5 -> date (to_period), use default
+		false,                                 // $6 -> boolean (validator_redirects_support)
 	).Bind(ctx, c.db, &rewards)
 }
 
@@ -495,6 +497,58 @@ func (c *CalcCmd) populateRewardRedirectsTable(
 	}
 	if int(count) != len(redirects) {
 		return fmt.Errorf("reward_redirects table was not populated")
+	}
+
+	return nil
+}
+
+func (c *CalcCmd) populateValidatorRedirectsTable(
+	ctx context.Context,
+	redirects rewards.ValidatorRedirects,
+) error {
+	// Truncate the validator_redirects table.
+	_, err := queries.Raw(
+		"TRUNCATE TABLE "+models.TableNames.ValidatorRedirects,
+	).ExecContext(ctx, c.db)
+	if err != nil {
+		return fmt.Errorf("failed to truncate validator_redirects: %w", err)
+	}
+
+	// Verify that the table is empty.
+	count, err := models.ValidatorRedirects().Count(ctx, c.db)
+	if err != nil {
+		return fmt.Errorf("failed to count validator_redirects: %w", err)
+	}
+	if count != 0 {
+		return fmt.Errorf("validator_redirects table was not truncated")
+	}
+
+	// Populate with given redirects.
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	for pubkey, to := range redirects {
+		model := models.ValidatorRedirect{
+			PublicKey: pubkey.String(),
+			ToAddress: to.String(),
+		}
+		if err := model.Insert(ctx, tx, boil.Infer()); err != nil {
+			return fmt.Errorf("failed to insert rewards_redirect: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Verify that the table is populated.
+	count, err = models.ValidatorRedirects().Count(ctx, c.db)
+	if err != nil {
+		return fmt.Errorf("failed to count validator_redirects: %w", err)
+	}
+	if int(count) != len(redirects) {
+		return fmt.Errorf("validator_redirects table was not populated")
 	}
 
 	return nil

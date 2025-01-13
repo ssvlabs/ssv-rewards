@@ -41,14 +41,18 @@ BEGIN
     RETURN QUERY
     SELECT
         COALESCE(
-            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END, 
+            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
             dr.owner_address
         ) AS recipient_address,
         COUNT(dr.public_key) AS number_of_validators,
         SUM(dr.active_days)::BIGINT AS active_days
     FROM active_days_by_validator(_provider, min_attestations, min_decideds, from_period, to_period) dr
-    LEFT JOIN validator_redirects rr ON dr.public_key = vr.from_address AND validator_redirects_support
-    GROUP BY dr.owner_address;
+    LEFT JOIN validator_redirects vr ON dr.public_key = vr.public_key AND validator_redirects_support
+    GROUP BY
+        COALESCE(
+            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
+            dr.owner_address
+        );
 END;
 $$ LANGUAGE plpgsql STABLE;
 

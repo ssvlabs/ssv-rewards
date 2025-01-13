@@ -177,15 +177,18 @@ var ValidatorWhere = struct {
 
 // ValidatorRels is where relationship names are stored.
 var ValidatorRels = struct {
+	PublicKeyValidatorRedirect     string
 	PublicKeyValidatorEvents       string
 	PublicKeyValidatorPerformances string
 }{
+	PublicKeyValidatorRedirect:     "PublicKeyValidatorRedirect",
 	PublicKeyValidatorEvents:       "PublicKeyValidatorEvents",
 	PublicKeyValidatorPerformances: "PublicKeyValidatorPerformances",
 }
 
 // validatorR is where relationships are stored.
 type validatorR struct {
+	PublicKeyValidatorRedirect     *ValidatorRedirect        `boil:"PublicKeyValidatorRedirect" json:"PublicKeyValidatorRedirect" toml:"PublicKeyValidatorRedirect" yaml:"PublicKeyValidatorRedirect"`
 	PublicKeyValidatorEvents       ValidatorEventSlice       `boil:"PublicKeyValidatorEvents" json:"PublicKeyValidatorEvents" toml:"PublicKeyValidatorEvents" yaml:"PublicKeyValidatorEvents"`
 	PublicKeyValidatorPerformances ValidatorPerformanceSlice `boil:"PublicKeyValidatorPerformances" json:"PublicKeyValidatorPerformances" toml:"PublicKeyValidatorPerformances" yaml:"PublicKeyValidatorPerformances"`
 }
@@ -193,6 +196,13 @@ type validatorR struct {
 // NewStruct creates a new relationship struct
 func (*validatorR) NewStruct() *validatorR {
 	return &validatorR{}
+}
+
+func (r *validatorR) GetPublicKeyValidatorRedirect() *ValidatorRedirect {
+	if r == nil {
+		return nil
+	}
+	return r.PublicKeyValidatorRedirect
 }
 
 func (r *validatorR) GetPublicKeyValidatorEvents() ValidatorEventSlice {
@@ -525,6 +535,17 @@ func (q validatorQuery) Exists(ctx context.Context, exec boil.ContextExecutor) (
 	return count > 0, nil
 }
 
+// PublicKeyValidatorRedirect pointed to by the foreign key.
+func (o *Validator) PublicKeyValidatorRedirect(mods ...qm.QueryMod) validatorRedirectQuery {
+	queryMods := []qm.QueryMod{
+		qm.Where("\"public_key\" = ?", o.PublicKey),
+	}
+
+	queryMods = append(queryMods, mods...)
+
+	return ValidatorRedirects(queryMods...)
+}
+
 // PublicKeyValidatorEvents retrieves all the validator_event's ValidatorEvents with an executor via public_key column.
 func (o *Validator) PublicKeyValidatorEvents(mods ...qm.QueryMod) validatorEventQuery {
 	var queryMods []qm.QueryMod
@@ -551,6 +572,123 @@ func (o *Validator) PublicKeyValidatorPerformances(mods ...qm.QueryMod) validato
 	)
 
 	return ValidatorPerformances(queryMods...)
+}
+
+// LoadPublicKeyValidatorRedirect allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-1 relationship.
+func (validatorL) LoadPublicKeyValidatorRedirect(ctx context.Context, e boil.ContextExecutor, singular bool, maybeValidator interface{}, mods queries.Applicator) error {
+	var slice []*Validator
+	var object *Validator
+
+	if singular {
+		var ok bool
+		object, ok = maybeValidator.(*Validator)
+		if !ok {
+			object = new(Validator)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeValidator)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeValidator))
+			}
+		}
+	} else {
+		s, ok := maybeValidator.(*[]*Validator)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeValidator)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeValidator))
+			}
+		}
+	}
+
+	args := make(map[interface{}]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &validatorR{}
+		}
+		args[object.PublicKey] = struct{}{}
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &validatorR{}
+			}
+
+			args[obj.PublicKey] = struct{}{}
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]interface{}, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`validator_redirects`),
+		qm.WhereIn(`validator_redirects.public_key in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load ValidatorRedirect")
+	}
+
+	var resultSlice []*ValidatorRedirect
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice ValidatorRedirect")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results of eager load for validator_redirects")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for validator_redirects")
+	}
+
+	if len(validatorRedirectAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(resultSlice) == 0 {
+		return nil
+	}
+
+	if singular {
+		foreign := resultSlice[0]
+		object.R.PublicKeyValidatorRedirect = foreign
+		if foreign.R == nil {
+			foreign.R = &validatorRedirectR{}
+		}
+		foreign.R.PublicKeyValidator = object
+	}
+
+	for _, local := range slice {
+		for _, foreign := range resultSlice {
+			if local.PublicKey == foreign.PublicKey {
+				local.R.PublicKeyValidatorRedirect = foreign
+				if foreign.R == nil {
+					foreign.R = &validatorRedirectR{}
+				}
+				foreign.R.PublicKeyValidator = local
+				break
+			}
+		}
+	}
+
+	return nil
 }
 
 // LoadPublicKeyValidatorEvents allows an eager lookup of values, cached into the
@@ -776,6 +914,56 @@ func (validatorL) LoadPublicKeyValidatorPerformances(ctx context.Context, e boil
 		}
 	}
 
+	return nil
+}
+
+// SetPublicKeyValidatorRedirect of the validator to the related item.
+// Sets o.R.PublicKeyValidatorRedirect to related.
+// Adds o to related.R.PublicKeyValidator.
+func (o *Validator) SetPublicKeyValidatorRedirect(ctx context.Context, exec boil.ContextExecutor, insert bool, related *ValidatorRedirect) error {
+	var err error
+
+	if insert {
+		related.PublicKey = o.PublicKey
+
+		if err = related.Insert(ctx, exec, boil.Infer()); err != nil {
+			return errors.Wrap(err, "failed to insert into foreign table")
+		}
+	} else {
+		updateQuery := fmt.Sprintf(
+			"UPDATE \"validator_redirects\" SET %s WHERE %s",
+			strmangle.SetParamNames("\"", "\"", 1, []string{"public_key"}),
+			strmangle.WhereClause("\"", "\"", 2, validatorRedirectPrimaryKeyColumns),
+		)
+		values := []interface{}{o.PublicKey, related.PublicKey}
+
+		if boil.IsDebug(ctx) {
+			writer := boil.DebugWriterFrom(ctx)
+			fmt.Fprintln(writer, updateQuery)
+			fmt.Fprintln(writer, values)
+		}
+		if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+			return errors.Wrap(err, "failed to update foreign table")
+		}
+
+		related.PublicKey = o.PublicKey
+	}
+
+	if o.R == nil {
+		o.R = &validatorR{
+			PublicKeyValidatorRedirect: related,
+		}
+	} else {
+		o.R.PublicKeyValidatorRedirect = related
+	}
+
+	if related.R == nil {
+		related.R = &validatorRedirectR{
+			PublicKeyValidator: o,
+		}
+	} else {
+		related.R.PublicKeyValidator = o
+	}
 	return nil
 }
 

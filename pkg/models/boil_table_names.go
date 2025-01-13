@@ -10,6 +10,7 @@ var TableNames = struct {
 	State                 string
 	ValidatorEvents       string
 	ValidatorPerformances string
+	ValidatorRedirects    string
 	Validators            string
 }{
 	ContractEvents:        "contract_events",
@@ -18,5 +19,6 @@ var TableNames = struct {
 	State:                 "state",
 	ValidatorEvents:       "validator_events",
 	ValidatorPerformances: "validator_performances",
+	ValidatorRedirects:    "validator_redirects",
 	Validators:            "validators",
 }
