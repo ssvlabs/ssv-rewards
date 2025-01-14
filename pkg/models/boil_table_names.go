@@ -6,7 +6,7 @@ package models
 var TableNames = struct {
 	ContractEvents        string
 	Deployers             string
-	RewardRedirects       string
+	OwnerRedirects        string
 	State                 string
 	ValidatorEvents       string
 	ValidatorPerformances string
@@ -15,7 +15,7 @@ var TableNames = struct {
 }{
 	ContractEvents:        "contract_events",
 	Deployers:             "deployers",
-	RewardRedirects:       "reward_redirects",
+	OwnerRedirects:        "owner_redirects",
 	State:                 "state",
 	ValidatorEvents:       "validator_events",
 	ValidatorPerformances: "validator_performances",

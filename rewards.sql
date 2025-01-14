@@ -63,7 +63,7 @@ CREATE OR REPLACE FUNCTION active_days_by_recipient(
     from_period DATE, 
     to_period DATE DEFAULT NULL, 
     gnosis_safe_support BOOLEAN DEFAULT FALSE, 
-    reward_redirects_support BOOLEAN DEFAULT FALSE, 
+    owner_redirects_support BOOLEAN DEFAULT FALSE,
     validator_redirects_support BOOLEAN DEFAULT FALSE
 )
 RETURNS TABLE (
@@ -76,7 +76,7 @@ BEGIN
     RETURN QUERY
     SELECT
         COALESCE(
-            CASE WHEN reward_redirects_support THEN rr.to_address ELSE NULL END, 
+            CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
             d.deployer_address, 
             ado.owner_address
         ) AS recipient_address,
@@ -85,9 +85,9 @@ BEGIN
         SUM(ado.active_days)::BIGINT AS active_days
     FROM active_days_by_owner(_provider, min_attestations, min_decideds, from_period, to_period, validator_redirects_support) ado
     LEFT JOIN deployers d ON ado.owner_address = d.owner_address AND (NOT gnosis_safe_support OR NOT d.gnosis_safe)
-    LEFT JOIN reward_redirects rr ON ado.owner_address = rr.from_address AND reward_redirects_support
+    LEFT JOIN owner_redirects owr ON ado.owner_address = owr.from_address AND owner_redirects_support
     GROUP BY COALESCE(
-        CASE WHEN reward_redirects_support THEN rr.to_address ELSE NULL END, 
+        CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
         d.deployer_address, 
         ado.owner_address
     );

@@ -420,9 +420,9 @@ func (c *CalcCmd) recipientParticipations(
 	}
 	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
 
-	rewardRedirectsSupport := len(mechanics.RewardRedirects) > 0
-	if rewardRedirectsSupport {
-		err := c.populateRewardRedirectsTable(ctx, mechanics.RewardRedirects)
+	ownerRedirectsSupport := len(mechanics.OwnerRedirects) > 0
+	if ownerRedirectsSupport {
+		err := c.populateOwnerRedirectsTable(ctx, mechanics.OwnerRedirects)
 		if err != nil {
 			return nil, fmt.Errorf("failed to populate reward redirects table: %w", err)
 		}
@@ -445,30 +445,30 @@ func (c *CalcCmd) recipientParticipations(
 		time.Time(period),
 		nil,
 		gnosisSafeSupport,
-		rewardRedirectsSupport,
+		ownerRedirectsSupport,
 		validatorRedirectsSupport,
 	).Bind(ctx, c.db, &rewards)
 }
 
-func (c *CalcCmd) populateRewardRedirectsTable(
+func (c *CalcCmd) populateOwnerRedirectsTable(
 	ctx context.Context,
-	redirects rewards.Redirects,
+	redirects rewards.OwnerRedirects,
 ) error {
-	// Truncate the reward_redirects table.
+	// Truncate the owner_redirects table.
 	_, err := queries.Raw(
-		"TRUNCATE TABLE "+models.TableNames.RewardRedirects,
+		"TRUNCATE TABLE "+models.TableNames.OwnerRedirects,
 	).ExecContext(ctx, c.db)
 	if err != nil {
-		return fmt.Errorf("failed to truncate reward_redirects: %w", err)
+		return fmt.Errorf("failed to truncate owner_redirects: %w", err)
 	}
 
 	// Verify that the table is empty.
-	count, err := models.RewardRedirects().Count(ctx, c.db)
+	count, err := models.OwnerRedirects().Count(ctx, c.db)
 	if err != nil {
-		return fmt.Errorf("failed to count reward_redirects: %w", err)
+		return fmt.Errorf("failed to count owner_redirects: %w", err)
 	}
 	if count != 0 {
-		return fmt.Errorf("reward_redirects table was not truncated")
+		return fmt.Errorf("owner_redirects table was not truncated")
 	}
 
 	// Populate with given redirects.
@@ -478,7 +478,7 @@ func (c *CalcCmd) populateRewardRedirectsTable(
 	}
 	defer tx.Rollback()
 	for from, to := range redirects {
-		model := models.RewardRedirect{
+		model := models.OwnerRedirect{
 			FromAddress: from.String(),
 			ToAddress:   to.String(),
 		}
@@ -491,12 +491,12 @@ func (c *CalcCmd) populateRewardRedirectsTable(
 	}
 
 	// Verify that the table is populated.
-	count, err = models.RewardRedirects().Count(ctx, c.db)
+	count, err = models.OwnerRedirects().Count(ctx, c.db)
 	if err != nil {
-		return fmt.Errorf("failed to count reward_redirects: %w", err)
+		return fmt.Errorf("failed to count owner_redirects: %w", err)
 	}
 	if int(count) != len(redirects) {
-		return fmt.Errorf("reward_redirects table was not populated")
+		return fmt.Errorf("owner_redirects table was not populated")
 	}
 
 	return nil

@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS deployers (
 	PRIMARY KEY (owner_address)
 );
 
-CREATE TABLE IF NOT EXISTS reward_redirects (
+CREATE TABLE IF NOT EXISTS owner_redirects (
 	from_address TEXT NOT NULL,
 	to_address TEXT NOT NULL,
 	PRIMARY KEY (from_address)

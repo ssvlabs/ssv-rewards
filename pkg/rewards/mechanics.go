@@ -48,14 +48,14 @@ func (f Features) Validate() error {
 	return nil
 }
 
-type Redirects map[ExecutionAddress]ExecutionAddress
+type OwnerRedirects map[ExecutionAddress]ExecutionAddress
 type ValidatorRedirects map[BLSPubKey]ExecutionAddress
 
 type Mechanics struct {
 	Since              Period             `yaml:"since"`
 	Features           Features           `yaml:"features"`
 	Tiers              Tiers              `yaml:"tiers"`
-	RewardRedirects    Redirects          `yaml:"reward_redirects"`
+	OwnerRedirects     OwnerRedirects     `yaml:"owner_redirects"`
 	ValidatorRedirects ValidatorRedirects `yaml:"validator_redirects"`
 }
 

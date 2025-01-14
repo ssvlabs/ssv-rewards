@@ -39,8 +39,10 @@ mechanics:
     # Redirect rewards to different addresses. The left-hand side is the owner address,
     # and the right-hand side is the reward recipient address. Do not specify deployer
     # addresses on the left-hand side, only owner addresses.
-    reward_redirects:
+    owner_redirects:
       "0x1234567890abcdef1234567890abcdef12345678": "0x1234567890abcdef1234567890abcdef12345678"
+    # Redirect rewards to different addresses by validator public key. The left-hand side is the validator public key,
+    # and the right-hand side is the reward recipient address.
     validator_redirects:
       "1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234": "0x1234567890abcdef1234567890abcdef12345678"
 
