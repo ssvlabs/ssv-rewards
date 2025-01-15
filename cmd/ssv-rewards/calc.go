@@ -358,11 +358,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 }
 
 type ValidatorParticipation struct {
-	OwnerAddress string
-	PublicKey    string
-	ActiveDays   int
-	Reward       *precise.ETH `boil:"-"`
-	reward       *big.Int     `boil:"-"`
+	OwnerAddress     string
+	RecipientAddress string
+	PublicKey        string
+	ActiveDays       int
+	Reward           *precise.ETH `boil:"-"`
+	reward           *big.Int     `boil:"-"`
 }
 
 type ValidatorParticipationRound struct {
@@ -374,14 +375,30 @@ func (c *CalcCmd) validatorParticipations(
 	ctx context.Context,
 	period rewards.Period,
 ) ([]*ValidatorParticipation, error) {
-	var rewards []*ValidatorParticipation
-	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_validator($1, $2, $3, $4)",
+	var participant []*ValidatorParticipation
+
+	// Retrieve mechanics for the given period
+	mechanics, err := c.plan.Mechanics.At(period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mechanics for period %s: %w", period, err)
+	}
+
+	// Determine feature support
+	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
+	ownerRedirectsSupport := len(mechanics.OwnerRedirects) > 0
+	validatorRedirectsSupport := len(mechanics.ValidatorRedirects) > 0
+
+	return participant, queries.Raw(
+		"SELECT * FROM active_days_by_validator($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
 		c.plan.Criteria.MinDecidedsPerDay,
 		time.Time(period),
-	).Bind(ctx, c.db, &rewards)
+		nil, // to_period can be nil for single-period queries
+		gnosisSafeSupport,
+		ownerRedirectsSupport,
+		validatorRedirectsSupport,
+	).Bind(ctx, c.db, &participant)
 }
 
 type OwnerParticipation struct {
