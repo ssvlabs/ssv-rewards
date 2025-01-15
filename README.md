@@ -81,19 +81,21 @@ mechanics:
        "1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234": "0x1234567890abcdef1234567890abcdef12345678"
 
     # Alternatively, you can specify redirects using external CSV files:
+    # - You cannot use both `owner_redirects` and `owner_redirects_file` simultaneously. Choose one method.
+    # - You cannot use both `validator_redirects` and `validator_redirects_file` simultaneously. Choose one method.
     # - Each file must have a header row with "from" and "to" as column names.
-    # - For owner redirects, the "from" column contains owner addresses, and the "to" column contains recipient addresses.
-    #   Example of owner_redirects_file content:
-    #   from,to
-    #   0x1234567890abcdef1234567890abcdef12345678,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdef
-    #   0xabcdefabcdefabcdefabcdefabcdefabcdefabcdef,0x1234567890abcdef1234567890abcdef12345678
-    # 
-    # - For validator redirects, the "from" column contains validator public keys, and the "to" column contains recipient addresses.
-    #   Example of validator_redirects_file content:
-    #   from,to
-    #   1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234,0x1234567890abcdef1234567890abcdef12345678
-    #   abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef
+
+    # For owner redirects, the "from" column contains owner addresses, and the "to" column contains recipient addresses.
+    # Example of owner_redirects_file content:
+    # from,to
+    # 0x1234567890abcdef1234567890abcdef12345678,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdef
+    # 0xabcdefabcdefabcdefabcdefabcdefabcdefabcdef,0x1234567890abcdef1234567890abcdef12345678
     owner_redirects_file: owner_redirects_2023_11.csv
+    # For validator redirects, the "from" column contains validator public keys, and the "to" column contains recipient addresses.
+    # Example of validator_redirects_file content:
+    # from,to
+    # 1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234,0x1234567890abcdef1234567890abcdef12345678
+    # abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef
     validator_redirects_file: validator_redirects_2023_11.csv
 
 rounds:
