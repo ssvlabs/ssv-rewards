@@ -420,13 +420,11 @@ func (c *CalcCmd) ownerParticipations(
 ) ([]*OwnerParticipation, error) {
 	var rewards []*OwnerParticipation
 	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_owner($1, $2, $3, $4, $5, $6)",
-		c.PerformanceProvider,                 // $1 -> provider_type
-		c.plan.Criteria.MinAttestationsPerDay, // $2 -> integer
-		c.plan.Criteria.MinDecidedsPerDay,     // $3 -> integer
-		time.Time(period),                     // $4 -> date (from_period)
-		nil,                                   // $5 -> date (to_period), use default
-		false,                                 // $6 -> boolean (validator_redirects_support)
+		"SELECT * FROM active_days_by_owner($1, $2, $3, $4)",
+		c.PerformanceProvider,
+		c.plan.Criteria.MinAttestationsPerDay,
+		c.plan.Criteria.MinDecidedsPerDay,
+		time.Time(period),
 	).Bind(ctx, c.db, &rewards)
 }
 

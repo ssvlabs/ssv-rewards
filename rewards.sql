@@ -1,6 +1,5 @@
 DROP FUNCTION IF EXISTS active_days_by_validator(provider_type, INTEGER, DATE, DATE);
 DROP FUNCTION IF EXISTS active_days_by_owner(provider_type, INTEGER, DATE, DATE);
-DROP FUNCTION IF EXISTS active_days_by_owner(provider_type, INTEGER, DATE, DATE, BOOLEAN);
 DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, DATE, DATE);
 DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN);
 DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN, BOOLEAN);
@@ -65,13 +64,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
+
 CREATE OR REPLACE FUNCTION active_days_by_owner(
     _provider provider_type,
     min_attestations INTEGER,
     min_decideds INTEGER,
     from_period DATE,
-    to_period DATE DEFAULT NULL,
-    validator_redirects_support BOOLEAN DEFAULT FALSE
+    to_period DATE DEFAULT NULL
 )
 RETURNS TABLE (
     owner_address TEXT,
@@ -81,19 +80,11 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     SELECT
-        COALESCE(
-            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
-            dr.owner_address
-        ) AS recipient_address,
+        dr.owner_address,
         COUNT(dr.public_key) AS number_of_validators,
         SUM(dr.active_days)::BIGINT AS active_days
     FROM active_days_by_validator(_provider, min_attestations, min_decideds, from_period, to_period) dr
-    LEFT JOIN validator_redirects vr ON dr.public_key = vr.public_key AND validator_redirects_support
-    GROUP BY
-        COALESCE(
-            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
-            dr.owner_address
-        );
+    GROUP BY dr.owner_address;
 END;
 $$ LANGUAGE plpgsql STABLE;
 
