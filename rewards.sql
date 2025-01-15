@@ -1,11 +1,19 @@
 DROP FUNCTION IF EXISTS active_days_by_validator(provider_type, INTEGER, DATE, DATE);
 DROP FUNCTION IF EXISTS active_days_by_owner(provider_type, INTEGER, DATE, DATE);
+DROP FUNCTION IF EXISTS active_days_by_owner(provider_type, INTEGER, DATE, DATE, BOOLEAN);
 DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, DATE, DATE);
 DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN);
 DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN, BOOLEAN);
+DROP FUNCTION IF EXISTS active_days_by_recipient(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN, BOOLEAN, BOOLEAN);
 DROP FUNCTION IF EXISTS inactive_days_by_validator(provider_type, INTEGER, DATE, DATE);
 
-CREATE OR REPLACE FUNCTION active_days_by_validator(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL)
+CREATE OR REPLACE FUNCTION active_days_by_validator(
+       _provider provider_type,
+       min_attestations INTEGER,
+       min_decideds INTEGER,
+       from_period DATE,
+       to_period DATE DEFAULT NULL
+)
 RETURNS TABLE (
     owner_address TEXT,
     public_key TEXT,
@@ -31,7 +39,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION active_days_by_owner(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE DEFAULT NULL, validator_redirects_support BOOLEAN DEFAULT FALSE)
+CREATE OR REPLACE FUNCTION active_days_by_owner(
+       _provider provider_type,
+       min_attestations INTEGER,
+       min_decideds INTEGER,
+       from_period DATE,
+       to_period DATE DEFAULT NULL,
+       validator_redirects_support BOOLEAN DEFAULT FALSE
+)
 RETURNS TABLE (
     owner_address TEXT,
     validators BIGINT,
@@ -76,25 +91,48 @@ BEGIN
     RETURN QUERY
     SELECT
         COALESCE(
-            CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
-            d.deployer_address, 
-            ado.owner_address
+            -- Priority 1: Validator redirects
+            CASE
+                WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
+            -- Priority 2: Owner redirects
+            CASE
+                WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
+            -- Priority 3: Deployer
+            CASE
+                WHEN NOT gnosis_safe_support OR NOT d.gnosis_safe THEN d.deployer_address ELSE NULL END,
+            -- Priority 4: Default owner address
+            adv.owner_address
         ) AS recipient_address,
         BOOL_OR(d.deployer_address IS NOT NULL) AS is_deployer,
-        SUM(ado.validators)::BIGINT AS validators,
-        SUM(ado.active_days)::BIGINT AS active_days
-    FROM active_days_by_owner(_provider, min_attestations, min_decideds, from_period, to_period, validator_redirects_support) ado
-    LEFT JOIN deployers d ON ado.owner_address = d.owner_address AND (NOT gnosis_safe_support OR NOT d.gnosis_safe)
-    LEFT JOIN owner_redirects owr ON ado.owner_address = owr.from_address AND owner_redirects_support
+        COUNT(adv.public_key) AS validators,
+        SUM(adv.active_days)::BIGINT AS active_days
+    FROM active_days_by_validator(_provider, min_attestations, min_decideds, from_period, to_period) adv
+    LEFT JOIN validator_redirects vr ON adv.public_key = vr.public_key AND validator_redirects_support
+    LEFT JOIN owner_redirects owr ON adv.owner_address = owr.from_address AND owner_redirects_support
+    LEFT JOIN deployers d ON adv.owner_address = d.owner_address AND (NOT gnosis_safe_support OR NOT d.gnosis_safe)
     GROUP BY COALESCE(
-        CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
-        d.deployer_address, 
-        ado.owner_address
+        -- Priority 1: Validator redirects
+         CASE
+             WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
+        -- Priority 2: Owner redirects
+         CASE
+             WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
+        -- Priority 3: Deployer
+         CASE
+             WHEN NOT gnosis_safe_support OR NOT d.gnosis_safe THEN d.deployer_address ELSE NULL END,
+        -- Priority 4: Default owner address
+         adv.owner_address
     );
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION inactive_days_by_validator(_provider provider_type, min_attestations INTEGER, min_decideds INTEGER, from_period DATE, to_period DATE default NULL)
+CREATE OR REPLACE FUNCTION inactive_days_by_validator(
+       _provider provider_type,
+       min_attestations INTEGER,
+       min_decideds INTEGER,
+       from_period DATE,
+       to_period DATE default NULL
+)
 RETURNS TABLE (
 	day DATE,
 	from_epoch INTEGER,
