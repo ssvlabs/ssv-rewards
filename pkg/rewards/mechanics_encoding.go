@@ -89,3 +89,19 @@ func (p *BLSPubKey) UnmarshalJSON(data []byte) error {
 	}
 	return p.UnmarshalText([]byte(s))
 }
+
+func ExecutionAddressFromHex(hexStr string) (ExecutionAddress, error) {
+	var addr ExecutionAddress
+	if err := addr.UnmarshalText([]byte(hexStr)); err != nil {
+		return ExecutionAddress{}, fmt.Errorf("invalid ExecutionAddress: %w", err)
+	}
+	return addr, nil
+}
+
+func BLSPubKeyFromHex(hexStr string) (BLSPubKey, error) {
+	var key BLSPubKey
+	if err := key.UnmarshalText([]byte(hexStr)); err != nil {
+		return BLSPubKey{}, fmt.Errorf("invalid BLSPubKey: %w", err)
+	}
+	return key, nil
+}

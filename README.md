@@ -78,7 +78,23 @@ mechanics:
     # Redirect rewards to different addresses by validator public key. The left-hand side is the validator public key,
     # and the right-hand side is the reward recipient address.
     validator_redirects:
-       "1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234": "0x1234567890abcdef1234567890abcdef12345678"  
+       "1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234": "0x1234567890abcdef1234567890abcdef12345678"
+
+    # Alternatively, you can specify redirects using external CSV files:
+    # - Each file must have a header row with "from" and "to" as column names.
+    # - For owner redirects, the "from" column contains owner addresses, and the "to" column contains recipient addresses.
+    #   Example of owner_redirects_file content:
+    #   from,to
+    #   0x1234567890abcdef1234567890abcdef12345678,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdef
+    #   0xabcdefabcdefabcdefabcdefabcdefabcdefabcdef,0x1234567890abcdef1234567890abcdef12345678
+    # 
+    # - For validator redirects, the "from" column contains validator public keys, and the "to" column contains recipient addresses.
+    #   Example of validator_redirects_file content:
+    #   from,to
+    #   1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234,0x1234567890abcdef1234567890abcdef12345678
+    #   abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef
+    owner_redirects_file: owner_redirects_2023_11.csv
+    validator_redirects_file: validator_redirects_2023_11.csv
 
 rounds:
   - period: 2023-07 # Designated period (year-month)

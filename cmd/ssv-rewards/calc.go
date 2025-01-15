@@ -103,6 +103,22 @@ func (c *CalcCmd) Run(
 		return fmt.Errorf("failed to write rewards.json: %w", err)
 	}
 
+	// Export redirects from files.
+	for _, mechanics := range c.plan.Mechanics {
+		if mechanics.OwnerRedirectsFile != "" {
+			filePath := filepath.Join(inputsDir, filepath.Base(mechanics.OwnerRedirectsFile))
+			if err := exportRedirectsToCSV(mechanics.OwnerRedirects, filePath); err != nil {
+				return fmt.Errorf("failed to export owner redirects for period %s: %w", mechanics.Since, err)
+			}
+		}
+		if mechanics.ValidatorRedirectsFile != "" {
+			filePath := filepath.Join(inputsDir, filepath.Base(mechanics.ValidatorRedirectsFile))
+			if err := exportRedirectsToCSV(mechanics.ValidatorRedirects, filePath); err != nil {
+				return fmt.Errorf("failed to export validator redirects for period %s: %w", mechanics.Since, err)
+			}
+		}
+	}
+
 	// Calculate rewards.
 	if err := c.run(ctx, logger, tmpDir); err != nil {
 		return fmt.Errorf("failed to calculate rewards: %w", err)
@@ -624,4 +640,34 @@ func exportCSV(data any, fileName string) error {
 		return fmt.Errorf("failed to marshal %q: %w", fileName, err)
 	}
 	return nil
+}
+
+func exportRedirectsToCSV(redirects interface{}, fileName string) error {
+	type RedirectRow struct {
+		From string `csv:"from"`
+		To   string `csv:"to"`
+	}
+
+	var rows []RedirectRow
+
+	switch r := redirects.(type) {
+	case rewards.OwnerRedirects:
+		for from, to := range r {
+			rows = append(rows, RedirectRow{
+				From: from.String(),
+				To:   to.String(),
+			})
+		}
+	case rewards.ValidatorRedirects:
+		for from, to := range r {
+			rows = append(rows, RedirectRow{
+				From: from.String(),
+				To:   to.String(),
+			})
+		}
+	default:
+		return fmt.Errorf("unsupported redirects type: %T", redirects)
+	}
+
+	return exportCSV(rows, fileName)
 }
