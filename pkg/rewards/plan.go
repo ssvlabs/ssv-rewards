@@ -96,24 +96,6 @@ func (p *Plan) validate() error {
 			}
 			mechanics.ValidatorRedirects = loadedRedirects
 		}
-
-		// Check for duplicate keys in OwnerRedirects.
-		ownerSeen := make(map[string]struct{}) // Separate map for OwnerRedirects
-		for from := range mechanics.OwnerRedirects {
-			if _, exists := ownerSeen[from.String()]; exists {
-				return fmt.Errorf("duplicate owner redirect key: %s", from.String())
-			}
-			ownerSeen[from.String()] = struct{}{}
-		}
-
-		// Check for duplicate keys in ValidatorRedirects.
-		validatorSeen := make(map[string]struct{}) // Separate map for ValidatorRedirects
-		for from := range mechanics.ValidatorRedirects {
-			if _, exists := validatorSeen[from.String()]; exists {
-				return fmt.Errorf("duplicate validator redirect key: %s", from.String())
-			}
-			validatorSeen[from.String()] = struct{}{}
-		}
 	}
 
 	// Validate Rounds.
@@ -242,6 +224,11 @@ func loadOwnerRedirectsFromCSV(filePath string) (OwnerRedirects, error) {
 			return nil, fmt.Errorf("invalid execution address on line %d: %w", i+2, err)
 		}
 
+		// Check for duplicate "from" keys.
+		if _, exists := redirects[from]; exists {
+			return nil, fmt.Errorf("duplicate entry for 'from' address on line %d: %s", i+2, record[0])
+		}
+
 		redirects[from] = to
 	}
 	return redirects, nil
@@ -288,6 +275,11 @@ func loadValidatorRedirectsFromCSV(filePath string) (ValidatorRedirects, error) 
 		to, err := ExecutionAddressFromHex(record[1])
 		if err != nil {
 			return nil, fmt.Errorf("invalid execution address on line %d: %w", i+2, err)
+		}
+
+		// Check for duplicate "from" keys.
+		if _, exists := redirects[from]; exists {
+			return nil, fmt.Errorf("duplicate entry for 'from' key on line %d: %s", i+2, record[0])
 		}
 
 		redirects[from] = to
