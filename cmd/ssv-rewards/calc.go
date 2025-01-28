@@ -383,10 +383,17 @@ func (c *CalcCmd) validatorParticipations(
 		return nil, fmt.Errorf("failed to get mechanics for period %s: %w", period, err)
 	}
 
-	// Determine feature support
+	// Prepare redirections
+	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(
+		ctx,
+		mechanics.OwnerRedirects,
+		mechanics.ValidatorRedirects,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare redirections: %w", err)
+	}
+
 	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
-	ownerRedirectsSupport := len(mechanics.OwnerRedirects) > 0
-	validatorRedirectsSupport := len(mechanics.ValidatorRedirects) > 0
 
 	return participant, queries.Raw(
 		"SELECT * FROM active_days_by_validator($1, $2, $3, $4, $5, $6, $7, $8)",
@@ -399,6 +406,31 @@ func (c *CalcCmd) validatorParticipations(
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
 	).Bind(ctx, c.db, &participant)
+}
+
+func (c *CalcCmd) prepareRedirections(
+	ctx context.Context,
+	ownerRedirects rewards.OwnerRedirects,
+	validatorRedirects rewards.ValidatorRedirects,
+) (bool, bool, error) {
+	ownerRedirectsSupport := len(ownerRedirects) > 0
+	validatorRedirectsSupport := len(validatorRedirects) > 0
+
+	if ownerRedirectsSupport {
+		err := c.populateOwnerRedirectsTable(ctx, ownerRedirects)
+		if err != nil {
+			return false, false, fmt.Errorf("failed to populate owner redirects: %w", err)
+		}
+	}
+
+	if validatorRedirectsSupport {
+		err := c.populateValidatorRedirectsTable(ctx, validatorRedirects)
+		if err != nil {
+			return false, false, fmt.Errorf("failed to populate validator redirects: %w", err)
+		}
+	}
+
+	return ownerRedirectsSupport, validatorRedirectsSupport, nil
 }
 
 type OwnerParticipation struct {
@@ -451,20 +483,14 @@ func (c *CalcCmd) recipientParticipations(
 	}
 	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
 
-	ownerRedirectsSupport := len(mechanics.OwnerRedirects) > 0
-	if ownerRedirectsSupport {
-		err := c.populateOwnerRedirectsTable(ctx, mechanics.OwnerRedirects)
-		if err != nil {
-			return nil, fmt.Errorf("failed to populate reward redirects table: %w", err)
-		}
-	}
-
-	validatorRedirectsSupport := len(mechanics.ValidatorRedirects) > 0
-	if validatorRedirectsSupport {
-		err := c.populateValidatorRedirectsTable(ctx, mechanics.ValidatorRedirects)
-		if err != nil {
-			return nil, fmt.Errorf("failed to populate reward redirects table: %w", err)
-		}
+	// Prepare redirections
+	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(
+		ctx,
+		mechanics.OwnerRedirects,
+		mechanics.ValidatorRedirects,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare redirections: %w", err)
 	}
 
 	var rewards []*RecipientParticipation
