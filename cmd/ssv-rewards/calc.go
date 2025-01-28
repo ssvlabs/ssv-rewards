@@ -375,27 +375,21 @@ func (c *CalcCmd) validatorParticipations(
 	ctx context.Context,
 	period rewards.Period,
 ) ([]*ValidatorParticipation, error) {
-	var participant []*ValidatorParticipation
-
 	// Retrieve mechanics for the given period
 	mechanics, err := c.plan.Mechanics.At(period)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mechanics for period %s: %w", period, err)
 	}
 
-	// Prepare redirections
-	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(
-		ctx,
-		mechanics.OwnerRedirects,
-		mechanics.ValidatorRedirects,
-	)
+	// Prepare redirections for the current mechanics
+	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(ctx, mechanics)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare redirections: %w", err)
+		return nil, fmt.Errorf("failed to prepare redirections for period %s: %w", period, err)
 	}
 
+	var participations []*ValidatorParticipation
 	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
-
-	return participant, queries.Raw(
+	return participations, queries.Raw(
 		"SELECT * FROM active_days_by_validator($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
@@ -405,31 +399,30 @@ func (c *CalcCmd) validatorParticipations(
 		gnosisSafeSupport,
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
-	).Bind(ctx, c.db, &participant)
+	).Bind(ctx, c.db, &participations)
 }
 
 func (c *CalcCmd) prepareRedirections(
 	ctx context.Context,
-	ownerRedirects rewards.OwnerRedirects,
-	validatorRedirects rewards.ValidatorRedirects,
+	mechanics *rewards.Mechanics,
 ) (bool, bool, error) {
-	ownerRedirectsSupport := len(ownerRedirects) > 0
-	validatorRedirectsSupport := len(validatorRedirects) > 0
-
+	// Check and populate Owner Redirects
+	ownerRedirectsSupport := len(mechanics.OwnerRedirects) > 0
 	if ownerRedirectsSupport {
-		err := c.populateOwnerRedirectsTable(ctx, ownerRedirects)
-		if err != nil {
+		if err := c.populateOwnerRedirectsTable(ctx, mechanics.OwnerRedirects); err != nil {
 			return false, false, fmt.Errorf("failed to populate owner redirects: %w", err)
 		}
 	}
 
+	// Check and populate Validator Redirects
+	validatorRedirectsSupport := len(mechanics.ValidatorRedirects) > 0
 	if validatorRedirectsSupport {
-		err := c.populateValidatorRedirectsTable(ctx, validatorRedirects)
-		if err != nil {
+		if err := c.populateValidatorRedirectsTable(ctx, mechanics.ValidatorRedirects); err != nil {
 			return false, false, fmt.Errorf("failed to populate validator redirects: %w", err)
 		}
 	}
 
+	// Return whether redirects are supported
 	return ownerRedirectsSupport, validatorRedirectsSupport, nil
 }
 
@@ -477,24 +470,21 @@ func (c *CalcCmd) recipientParticipations(
 	ctx context.Context,
 	period rewards.Period,
 ) ([]*RecipientParticipation, error) {
+	// Retrieve mechanics for the given period
 	mechanics, err := c.plan.Mechanics.At(period)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mechanics: %w", err)
 	}
-	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
 
-	// Prepare redirections
-	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(
-		ctx,
-		mechanics.OwnerRedirects,
-		mechanics.ValidatorRedirects,
-	)
+	// Prepare redirections for the current mechanics
+	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(ctx, mechanics)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare redirections: %w", err)
+		return nil, fmt.Errorf("failed to prepare redirections for period %s: %w", period, err)
 	}
 
-	var rewards []*RecipientParticipation
-	return rewards, queries.Raw(
+	var participations []*RecipientParticipation
+	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
+	return participations, queries.Raw(
 		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
@@ -504,7 +494,7 @@ func (c *CalcCmd) recipientParticipations(
 		gnosisSafeSupport,
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
-	).Bind(ctx, c.db, &rewards)
+	).Bind(ctx, c.db, &participations)
 }
 
 func (c *CalcCmd) populateOwnerRedirectsTable(
