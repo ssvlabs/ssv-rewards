@@ -13,15 +13,16 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/bloxapp/ssv-rewards/pkg/models"
-	"github.com/bloxapp/ssv-rewards/pkg/precise"
-	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/gocarina/gocsv"
 	"github.com/volatiletech/sqlboiler/v4/boil"
 	"github.com/volatiletech/sqlboiler/v4/queries"
 	"go.uber.org/zap"
 	"golang.org/x/exp/maps"
+
+	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/precise"
+	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 )
 
 type CalcCmd struct {
@@ -100,6 +101,22 @@ func (c *CalcCmd) Run(
 	}
 	if err := os.WriteFile(filepath.Join(inputsDir, "rewards.json"), planJSON, 0644); err != nil {
 		return fmt.Errorf("failed to write rewards.json: %w", err)
+	}
+
+	// Export redirects from files.
+	for _, mechanics := range c.plan.Mechanics {
+		if mechanics.OwnerRedirectsFile != "" {
+			filePath := filepath.Join(inputsDir, filepath.Base(mechanics.OwnerRedirectsFile))
+			if err := exportRedirectsToCSV(mechanics.OwnerRedirects, filePath); err != nil {
+				return fmt.Errorf("failed to export owner redirects for period %s: %w", mechanics.Since, err)
+			}
+		}
+		if mechanics.ValidatorRedirectsFile != "" {
+			filePath := filepath.Join(inputsDir, filepath.Base(mechanics.ValidatorRedirectsFile))
+			if err := exportRedirectsToCSV(mechanics.ValidatorRedirects, filePath); err != nil {
+				return fmt.Errorf("failed to export validator redirects for period %s: %w", mechanics.Since, err)
+			}
+		}
 	}
 
 	// Calculate rewards.
@@ -341,11 +358,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 }
 
 type ValidatorParticipation struct {
-	OwnerAddress string
-	PublicKey    string
-	ActiveDays   int
-	Reward       *precise.ETH `boil:"-"`
-	reward       *big.Int     `boil:"-"`
+	OwnerAddress     string
+	RecipientAddress string
+	PublicKey        string
+	ActiveDays       int
+	Reward           *precise.ETH `boil:"-"`
+	reward           *big.Int     `boil:"-"`
 }
 
 type ValidatorParticipationRound struct {
@@ -357,14 +375,55 @@ func (c *CalcCmd) validatorParticipations(
 	ctx context.Context,
 	period rewards.Period,
 ) ([]*ValidatorParticipation, error) {
-	var rewards []*ValidatorParticipation
-	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_validator($1, $2, $3, $4)",
+	// Retrieve mechanics for the given period
+	mechanics, err := c.plan.Mechanics.At(period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mechanics for period %s: %w", period, err)
+	}
+
+	// Prepare redirections for the current mechanics
+	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(ctx, mechanics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare redirections for period %s: %w", period, err)
+	}
+
+	var participations []*ValidatorParticipation
+	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
+	return participations, queries.Raw(
+		"SELECT * FROM active_days_by_validator($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
 		c.plan.Criteria.MinDecidedsPerDay,
 		time.Time(period),
-	).Bind(ctx, c.db, &rewards)
+		nil, // to_period can be nil for single-period queries
+		gnosisSafeSupport,
+		ownerRedirectsSupport,
+		validatorRedirectsSupport,
+	).Bind(ctx, c.db, &participations)
+}
+
+func (c *CalcCmd) prepareRedirections(
+	ctx context.Context,
+	mechanics *rewards.Mechanics,
+) (bool, bool, error) {
+	// Check and populate Owner Redirects
+	ownerRedirectsSupport := len(mechanics.OwnerRedirects) > 0
+	if ownerRedirectsSupport {
+		if err := c.populateOwnerRedirectsTable(ctx, mechanics.OwnerRedirects); err != nil {
+			return false, false, fmt.Errorf("failed to populate owner redirects: %w", err)
+		}
+	}
+
+	// Check and populate Validator Redirects
+	validatorRedirectsSupport := len(mechanics.ValidatorRedirects) > 0
+	if validatorRedirectsSupport {
+		if err := c.populateValidatorRedirectsTable(ctx, mechanics.ValidatorRedirects); err != nil {
+			return false, false, fmt.Errorf("failed to populate validator redirects: %w", err)
+		}
+	}
+
+	// Return whether redirects are supported
+	return ownerRedirectsSupport, validatorRedirectsSupport, nil
 }
 
 type OwnerParticipation struct {
@@ -411,52 +470,52 @@ func (c *CalcCmd) recipientParticipations(
 	ctx context.Context,
 	period rewards.Period,
 ) ([]*RecipientParticipation, error) {
+	// Retrieve mechanics for the given period
 	mechanics, err := c.plan.Mechanics.At(period)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mechanics: %w", err)
 	}
-	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
-	rewardRedirectsSupport := len(mechanics.RewardRedirects) > 0
 
-	if rewardRedirectsSupport {
-		err := c.populateRewardRedirectsTable(ctx, mechanics.RewardRedirects)
-		if err != nil {
-			return nil, fmt.Errorf("failed to populate reward redirects table: %w", err)
-		}
+	// Prepare redirections for the current mechanics
+	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(ctx, mechanics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare redirections for period %s: %w", period, err)
 	}
 
-	var rewards []*RecipientParticipation
-	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7)",
+	var participations []*RecipientParticipation
+	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
+	return participations, queries.Raw(
+		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
 		c.plan.Criteria.MinAttestationsPerDay,
 		c.plan.Criteria.MinDecidedsPerDay,
 		time.Time(period),
 		nil,
 		gnosisSafeSupport,
-		rewardRedirectsSupport,
-	).Bind(ctx, c.db, &rewards)
+		ownerRedirectsSupport,
+		validatorRedirectsSupport,
+	).Bind(ctx, c.db, &participations)
 }
 
-func (c *CalcCmd) populateRewardRedirectsTable(
+func (c *CalcCmd) populateOwnerRedirectsTable(
 	ctx context.Context,
-	redirects rewards.Redirects,
+	redirects rewards.OwnerRedirects,
 ) error {
-	// Truncate the reward_redirects table.
+	// Truncate the owner_redirects table.
 	_, err := queries.Raw(
-		"TRUNCATE TABLE "+models.TableNames.RewardRedirects,
+		"TRUNCATE TABLE "+models.TableNames.OwnerRedirects,
 	).ExecContext(ctx, c.db)
 	if err != nil {
-		return fmt.Errorf("failed to truncate reward_redirects: %w", err)
+		return fmt.Errorf("failed to truncate owner_redirects: %w", err)
 	}
 
 	// Verify that the table is empty.
-	count, err := models.RewardRedirects().Count(ctx, c.db)
+	count, err := models.OwnerRedirects().Count(ctx, c.db)
 	if err != nil {
-		return fmt.Errorf("failed to count reward_redirects: %w", err)
+		return fmt.Errorf("failed to count owner_redirects: %w", err)
 	}
 	if count != 0 {
-		return fmt.Errorf("reward_redirects table was not truncated")
+		return fmt.Errorf("owner_redirects table was not truncated")
 	}
 
 	// Populate with given redirects.
@@ -466,7 +525,7 @@ func (c *CalcCmd) populateRewardRedirectsTable(
 	}
 	defer tx.Rollback()
 	for from, to := range redirects {
-		model := models.RewardRedirect{
+		model := models.OwnerRedirect{
 			FromAddress: from.String(),
 			ToAddress:   to.String(),
 		}
@@ -479,12 +538,64 @@ func (c *CalcCmd) populateRewardRedirectsTable(
 	}
 
 	// Verify that the table is populated.
-	count, err = models.RewardRedirects().Count(ctx, c.db)
+	count, err = models.OwnerRedirects().Count(ctx, c.db)
 	if err != nil {
-		return fmt.Errorf("failed to count reward_redirects: %w", err)
+		return fmt.Errorf("failed to count owner_redirects: %w", err)
 	}
 	if int(count) != len(redirects) {
-		return fmt.Errorf("reward_redirects table was not populated")
+		return fmt.Errorf("owner_redirects table was not populated")
+	}
+
+	return nil
+}
+
+func (c *CalcCmd) populateValidatorRedirectsTable(
+	ctx context.Context,
+	redirects rewards.ValidatorRedirects,
+) error {
+	// Truncate the validator_redirects table.
+	_, err := queries.Raw(
+		"TRUNCATE TABLE "+models.TableNames.ValidatorRedirects,
+	).ExecContext(ctx, c.db)
+	if err != nil {
+		return fmt.Errorf("failed to truncate validator_redirects: %w", err)
+	}
+
+	// Verify that the table is empty.
+	count, err := models.ValidatorRedirects().Count(ctx, c.db)
+	if err != nil {
+		return fmt.Errorf("failed to count validator_redirects: %w", err)
+	}
+	if count != 0 {
+		return fmt.Errorf("validator_redirects table was not truncated")
+	}
+
+	// Populate with given redirects.
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	for pubkey, to := range redirects {
+		model := models.ValidatorRedirect{
+			PublicKey: pubkey.String(),
+			ToAddress: to.String(),
+		}
+		if err := model.Insert(ctx, tx, boil.Infer()); err != nil {
+			return fmt.Errorf("failed to insert rewards_redirect: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Verify that the table is populated.
+	count, err = models.ValidatorRedirects().Count(ctx, c.db)
+	if err != nil {
+		return fmt.Errorf("failed to count validator_redirects: %w", err)
+	}
+	if int(count) != len(redirects) {
+		return fmt.Errorf("validator_redirects table was not populated")
 	}
 
 	return nil
@@ -560,4 +671,34 @@ func exportCSV(data any, fileName string) error {
 		return fmt.Errorf("failed to marshal %q: %w", fileName, err)
 	}
 	return nil
+}
+
+func exportRedirectsToCSV(redirects interface{}, fileName string) error {
+	type RedirectRow struct {
+		From string `csv:"from"`
+		To   string `csv:"to"`
+	}
+
+	var rows []RedirectRow
+
+	switch r := redirects.(type) {
+	case rewards.OwnerRedirects:
+		for from, to := range r {
+			rows = append(rows, RedirectRow{
+				From: from.String(),
+				To:   to.String(),
+			})
+		}
+	case rewards.ValidatorRedirects:
+		for from, to := range r {
+			rows = append(rows, RedirectRow{
+				From: from.String(),
+				To:   to.String(),
+			})
+		}
+	default:
+		return fmt.Errorf("unsupported redirects type: %T", redirects)
+	}
+
+	return exportCSV(rows, fileName)
 }

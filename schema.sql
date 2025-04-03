@@ -60,10 +60,16 @@ CREATE TABLE IF NOT EXISTS deployers (
 	PRIMARY KEY (owner_address)
 );
 
-CREATE TABLE IF NOT EXISTS reward_redirects (
+CREATE TABLE IF NOT EXISTS owner_redirects (
 	from_address TEXT NOT NULL,
 	to_address TEXT NOT NULL,
 	PRIMARY KEY (from_address)
+);
+
+CREATE TABLE IF NOT EXISTS validator_redirects (
+    public_key TEXT NOT NULL REFERENCES validators(public_key),
+    to_address TEXT NOT NULL,
+    PRIMARY KEY (public_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_validator_events_public_key ON validator_events(public_key);

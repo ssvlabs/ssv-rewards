@@ -48,3 +48,60 @@ func (e *ExecutionAddress) UnmarshalJSON(data []byte) error {
 	}
 	return e.UnmarshalText([]byte(s))
 }
+
+type BLSPubKey [48]byte
+
+func (p BLSPubKey) String() string {
+	b, err := p.MarshalText()
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func (p BLSPubKey) MarshalText() ([]byte, error) {
+	return []byte(hex.EncodeToString(p[:])), nil
+}
+
+func (p *BLSPubKey) UnmarshalText(data []byte) error {
+	if len(data) != 2+2*len(p) {
+		return fmt.Errorf("invalid length, want %d bytes", 2+2*len(p))
+	}
+	if data[0] != '0' || data[1] != 'x' {
+		return fmt.Errorf("invalid prefix, want 0x")
+	}
+	b, err := hex.DecodeString(string(data[2:]))
+	if err != nil {
+		return err
+	}
+	copy(p[:], b)
+	return nil
+}
+
+func (p BLSPubKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(p.String())
+}
+
+func (p *BLSPubKey) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	return p.UnmarshalText([]byte(s))
+}
+
+func ExecutionAddressFromHex(hexStr string) (ExecutionAddress, error) {
+	var addr ExecutionAddress
+	if err := addr.UnmarshalText([]byte(hexStr)); err != nil {
+		return ExecutionAddress{}, fmt.Errorf("invalid ExecutionAddress: %w", err)
+	}
+	return addr, nil
+}
+
+func BLSPubKeyFromHex(hexStr string) (BLSPubKey, error) {
+	var key BLSPubKey
+	if err := key.UnmarshalText([]byte(hexStr)); err != nil {
+		return BLSPubKey{}, fmt.Errorf("invalid BLSPubKey: %w", err)
+	}
+	return key, nil
+}
