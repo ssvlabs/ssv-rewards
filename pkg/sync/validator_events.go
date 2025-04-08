@@ -238,18 +238,16 @@ func SyncValidatorEvents(
 	if err != nil {
 		return fmt.Errorf("failed to get beacon validators: %w", err)
 	}
+	beaconValidatorsByPublicKey := make(map[phase0.BLSPubKey]*v1.Validator)
+	for _, v := range beaconValidators {
+		beaconValidatorsByPublicKey[v.Validator.PublicKey] = v
+	}
 	for pk, active := range knownValidators {
-		var beaconValidator *v1.Validator
-		for _, v := range beaconValidators {
-			if v.Validator.PublicKey == pk {
-				beaconValidator = v
-				break
-			}
-		}
 		validator := models.Validator{
 			PublicKey: hex.EncodeToString(pk[:]),
 			Active:    active,
 		}
+		beaconValidator := beaconValidatorsByPublicKey[pk]
 		if beaconValidator != nil {
 			validator.Index = null.IntFrom(int(beaconValidator.Index))
 			validator.BeaconStatus = null.StringFrom(beaconValidator.Status.String())
