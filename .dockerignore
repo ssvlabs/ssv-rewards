@@ -1,2 +1,6 @@
 /pgdata
 /data
+/cache
+/rewards
+/.git
+/*.log

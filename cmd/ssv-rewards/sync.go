@@ -242,6 +242,7 @@ func (c *SyncCmd) Run(
 			c.GnosisAPIEndpoint,
 			float64(c.GnosisAPIRequestsPerSecond)*0.95, // Safety margin.
 		),
+		c.HighestExecutionBlock,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to sync validator events: %w", err)

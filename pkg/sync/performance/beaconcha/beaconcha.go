@@ -2,7 +2,11 @@ package beaconcha
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -11,21 +15,33 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
 	"github.com/carlmjohnson/requests"
+	"tailscale.com/util/singleflight"
 )
 
 const (
 	ProviderType performance.ProviderType = "beaconcha"
+
+	cacheDir = "./cache/beaconcha"
 )
 
 type Client struct {
-	endpoint string
-	apiKey   string
-	ticker   *time.Ticker
-	cache    map[phase0.ValidatorIndex][]dailyData
-	cacheMu  sync.Mutex
+	endpoint     string
+	apiKey       string
+	ticker       *time.Ticker
+	cache        map[phase0.ValidatorIndex][]dailyData
+	cacheMu      sync.Mutex
+	singleflight singleflight.Group[phase0.ValidatorIndex, *performance.ValidatorPerformance]
 }
 
 func New(endpoint string, apiKey string, requestsPerMinute float64) *Client {
+	// Ensure cache directory exists
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		// In case of error, log it but continue - this isn't fatal
+		fmt.Printf("Warning: failed to create cache directory %s: %v\n", cacheDir, err)
+	}
+
+	log.Printf("Beaconcha ticker: %v", time.Duration(float64(time.Minute)/requestsPerMinute))
+
 	return &Client{
 		endpoint: endpoint,
 		apiKey:   apiKey,
@@ -45,71 +61,110 @@ func (m *Client) ValidatorPerformance(
 	fromEpoch, toEpoch, activationEpoch, exitEpoch phase0.Epoch,
 	index phase0.ValidatorIndex,
 ) (*performance.ValidatorPerformance, error) {
-	m.cacheMu.Lock()
-	data, ok := m.cache[index]
-	m.cacheMu.Unlock()
-	if !ok {
-		// Fetch from the Beaconcha API.
-		select {
-		case <-m.ticker.C:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-		ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
-		defer cancel()
-		var resp response
-		err := requests.URL(m.endpoint).
-			Client(httpretry.Client).
-			Pathf("/api/v1/validator/stats/%d", index).
-			Param("apikey", m.apiKey).
-			ToJSON(&resp).
-			Fetch(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch validator performance: %w", err)
-		}
-		if resp.Status != "OK" {
-			return nil, fmt.Errorf("failed to fetch validator performance: %s", resp.Status)
-		}
-		data = resp.Data
-
-		// Cache the data.
+	v, err, _ := m.singleflight.Do(index, func() (*performance.ValidatorPerformance, error) {
 		m.cacheMu.Lock()
-		m.cache[index] = data
+		data, ok := m.cache[index]
 		m.cacheMu.Unlock()
-	}
-	for _, d := range data {
-		if d.DayStart.UTC().Truncate(24*time.Hour) != day.UTC().Truncate(24*time.Hour) {
-			continue
+
+		if !ok {
+			// Try to load from disk cache first
+			cacheFile := filepath.Join(cacheDir, fmt.Sprintf("validator-%d.json", index))
+			cacheData, err := os.ReadFile(cacheFile)
+			// Only proceed with API call if file doesn't exist
+			if err != nil {
+				if !os.IsNotExist(err) {
+					return nil, fmt.Errorf("failed to read cache file for validator %d: %w", index, err)
+				}
+			} else {
+				var dailyData []dailyData
+				if err := json.Unmarshal(cacheData, &dailyData); err != nil {
+					return nil, fmt.Errorf("failed to unmarshal cache data for validator %d: %w", index, err)
+				}
+				m.cacheMu.Lock()
+				m.cache[index] = dailyData
+				data = dailyData
+				m.cacheMu.Unlock()
+				ok = true
+			}
 		}
 
-		// Count the number of active epochs in the day.
-		activeEpochs := deriveActiveEpochs(spec, fromEpoch, toEpoch, activationEpoch, exitEpoch)
+		if !ok {
+			// Fetch from the Beaconcha API if not in memory or on disk
+			select {
+			case <-m.ticker.C:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+			defer cancel()
+			var resp response
 
-		performance := &performance.ValidatorPerformance{
-			Attestations: performance.DutyPerformance{
-				Assigned: int16(activeEpochs),
-				Executed: int16(activeEpochs) - int16(d.MissedAttestations),
-				Missed:   int16(d.MissedAttestations),
-			},
-			Proposals: performance.DutyPerformance{
-				Assigned: int16(d.ProposedBlocks + d.MissedBlocks),
-				Executed: int16(d.ProposedBlocks),
-				Missed:   int16(d.MissedBlocks),
-			},
-			SyncCommittee: performance.DutyPerformance{
-				Assigned: int16(d.ParticipatedSync + d.MissedSync),
-				Executed: int16(d.ParticipatedSync),
-				Missed:   int16(d.MissedSync),
-			},
+			err := requests.URL(m.endpoint).
+				Client(httpretry.Client).
+				Pathf("/api/v1/validator/stats/%d", index).
+				Param("apikey", m.apiKey).
+				ToJSON(&resp).
+				Fetch(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch validator performance: %w", err)
+			}
+			if resp.Status != "OK" {
+				return nil, fmt.Errorf("failed to fetch validator performance: %s", resp.Status)
+			}
+			data = resp.Data
+
+			// Cache the data in memory
+			m.cacheMu.Lock()
+			m.cache[index] = data
+			m.cacheMu.Unlock()
+
+			// Save to disk
+			cacheFile := filepath.Join(cacheDir, fmt.Sprintf("validator-%d.json", index))
+			jsonData, err := json.Marshal(data)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal cache data for validator %d: %w", index, err)
+			}
+
+			if err := os.WriteFile(cacheFile, jsonData, 0644); err != nil {
+				return nil, fmt.Errorf("failed to write cache file for validator %d: %w", index, err)
+			}
 		}
-		performance.AttestationRate = float32(
-			performance.Attestations.Executed,
-		) / float32(
-			performance.Attestations.Assigned,
-		)
-		return performance, nil
-	}
-	return nil, nil
+
+		for _, d := range data {
+			if d.DayStart.UTC().Truncate(24*time.Hour) != day.UTC().Truncate(24*time.Hour) {
+				continue
+			}
+
+			// Count the number of active epochs in the day.
+			activeEpochs := deriveActiveEpochs(spec, fromEpoch, toEpoch, activationEpoch, exitEpoch)
+
+			performance := &performance.ValidatorPerformance{
+				Attestations: performance.DutyPerformance{
+					Assigned: int16(activeEpochs),
+					Executed: int16(activeEpochs) - int16(d.MissedAttestations),
+					Missed:   int16(d.MissedAttestations),
+				},
+				Proposals: performance.DutyPerformance{
+					Assigned: int16(d.ProposedBlocks + d.MissedBlocks),
+					Executed: int16(d.ProposedBlocks),
+					Missed:   int16(d.MissedBlocks),
+				},
+				SyncCommittee: performance.DutyPerformance{
+					Assigned: int16(d.ParticipatedSync + d.MissedSync),
+					Executed: int16(d.ParticipatedSync),
+					Missed:   int16(d.MissedSync),
+				},
+			}
+			performance.AttestationRate = float32(
+				performance.Attestations.Executed,
+			) / float32(
+				performance.Attestations.Assigned,
+			)
+			return performance, nil
+		}
+		return nil, nil
+	})
+	return v, err
 }
 
 type response struct {

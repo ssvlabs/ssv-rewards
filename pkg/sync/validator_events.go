@@ -7,12 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/bloxapp/ssv/networkconfig"
 	registrystorage "github.com/bloxapp/ssv/registry/storage"
 	"golang.org/x/exp/maps"
 
 	eth2client "github.com/attestantio/go-eth2-client"
+	"github.com/attestantio/go-eth2-client/api"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
@@ -49,6 +51,7 @@ func SyncValidatorEvents(
 	cl eth2client.Service,
 	etherscan *etherscan.Client,
 	gnosisClient *gnosis.Client,
+	highestExecutionBlock uint64,
 ) error {
 	// Fetch events from the database, organize into a channel of BlockLogs
 	// and process them using SSV's EventHandler.
@@ -70,6 +73,7 @@ func SyncValidatorEvents(
 	backgroundTasks := pool.New().WithContext(ctx).WithCancelOnError()
 	events, err := models.ContractEvents(
 		models.ContractEventWhere.BlockNumber.GTE(lastProcessedBlockInt),
+		models.ContractEventWhere.BlockNumber.LTE(int(highestExecutionBlock)),
 		qm.OrderBy("block_number, log_index"),
 	).All(ctx, db)
 	if err != nil {
@@ -230,26 +234,33 @@ func SyncValidatorEvents(
 			knownValidators[pk] = false
 		}
 	}
-	beaconValidators, err := cl.(eth2client.ValidatorsProvider).ValidatorsByPubKey(
+	startTime := time.Now()
+	logger.Debug("Getting beacon validators", zap.Int("count", len(knownValidators)))
+	beaconValidators, err := cl.(eth2client.ValidatorsProvider).Validators(
 		ctx,
-		"head",
-		maps.Keys(knownValidators),
+		&api.ValidatorsOpts{
+			State:   "head",
+			PubKeys: maps.Keys(knownValidators),
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get beacon validators: %w", err)
 	}
+	beaconValidatorsByPublicKey := make(map[phase0.BLSPubKey]*v1.Validator)
+	for _, v := range beaconValidators.Data {
+		beaconValidatorsByPublicKey[v.Validator.PublicKey] = v
+	}
+	logger.Debug("Got beacon validators", zap.Int("count", len(beaconValidators.Data)), zap.Duration("duration", time.Since(startTime)))
+	bar = progressbar.New(len(knownValidators))
+	bar.Describe("Upserting validators")
+	defer bar.Clear()
+
 	for pk, active := range knownValidators {
-		var beaconValidator *v1.Validator
-		for _, v := range beaconValidators {
-			if v.Validator.PublicKey == pk {
-				beaconValidator = v
-				break
-			}
-		}
 		validator := models.Validator{
 			PublicKey: hex.EncodeToString(pk[:]),
 			Active:    active,
 		}
+		beaconValidator := beaconValidatorsByPublicKey[pk]
 		if beaconValidator != nil {
 			validator.Index = null.IntFrom(int(beaconValidator.Index))
 			validator.BeaconStatus = null.StringFrom(beaconValidator.Status.String())
@@ -271,6 +282,7 @@ func SyncValidatorEvents(
 		if err := validator.Upsert(ctx, db, true, []string{"public_key"}, boil.Infer(), boil.Infer()); err != nil {
 			return fmt.Errorf("failed to upsert validator: %w", err)
 		}
+		bar.Add(1)
 	}
 	return nil
 }
