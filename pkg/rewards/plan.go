@@ -22,7 +22,6 @@ var (
 
 type Plan struct {
 	Version   int           `yaml:"version"`
-	Criteria  Criteria      `yaml:"criteria"`
 	Mechanics MechanicsList `yaml:"mechanics"`
 	Rounds    Rounds        `yaml:"rounds"`
 }
@@ -71,6 +70,10 @@ func (p *Plan) validate() error {
 					return fmt.Errorf("duplicate tier: %d in mechanics", mechanics.Tiers[j].MaxParticipants)
 				}
 			}
+		}
+
+		if err := mechanics.Criteria.Validate(); err != nil {
+			return fmt.Errorf("failed to validate criteria at period %s: %w", mechanics.Since, err)
 		}
 
 		// Check for conflicting redirects.
@@ -162,11 +165,6 @@ func (p *Plan) Tier(period Period, participants int) (*Tier, error) {
 		}
 	}
 	return nil, errors.New("participants exceed highest tier")
-}
-
-type Criteria struct {
-	MinAttestationsPerDay int `yaml:"min_attestations_per_day"`
-	MinDecidedsPerDay     int `yaml:"min_decideds_per_day"`
 }
 
 type Round struct {

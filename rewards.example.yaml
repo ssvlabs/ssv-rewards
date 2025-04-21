@@ -1,11 +1,10 @@
 version: 2
 
-criteria:
-  min_attestations_per_day: 202
-  min_decideds_per_day: 22
-
 mechanics:
   - since: 2023-07
+    criteria:
+      min_attestations_per_day: 202
+      min_decideds_per_day: 22
     features:
     tiers:
     - max_participants: 2000
@@ -20,6 +19,9 @@ mechanics:
       apr_boost: 0.1
 
   - since: 2023-09
+    criteria:
+      min_attestations_per_day: 202
+      min_decideds_per_day: 22
     features:
       # Rewards are paid to the owner address, unless it's a contract, in which case
       # they are paid to the deployer address. Enabling gnosis_safe rewards the owner

@@ -5,18 +5,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bloxapp/ssv-rewards/pkg/precise"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bloxapp/ssv-rewards/pkg/precise"
 )
 
 func TestParseYAML(t *testing.T) {
 	input := `
-criteria:
-  min_attestations_per_day: 202
-  min_decideds_per_day: 22
-
 mechanics:
   - since: 2023-07
+    criteria:
+      min_attestations_per_day: 202
+      min_decideds_per_day: 22
     tiers:
       - max_participants: 2000
         apr_boost: 0.5
@@ -29,6 +29,9 @@ mechanics:
       - max_participants: 30000
         apr_boost: 0.1
   - since: 2023-09
+    criteria:
+      min_attestations_per_day: 202
+      min_decideds_per_day: 22
     tiers:
       - max_participants: 3000
         apr_boost: 0.05
@@ -50,13 +53,13 @@ rounds:
     ssv_eth: 
 `
 	expected := Plan{
-		Criteria: Criteria{
-			MinAttestationsPerDay: 202,
-			MinDecidedsPerDay:     22,
-		},
 		Mechanics: MechanicsList{
 			{
 				Since: NewPeriod(2023, time.July),
+				Criteria: Criteria{
+					MinAttestationsPerDay: 202,
+					MinDecidedsPerDay:     22,
+				},
 				Tiers: Tiers{
 					{MaxParticipants: 2000, APRBoost: mustParseETH("0.5")},
 					{MaxParticipants: 5000, APRBoost: mustParseETH("0.4")},
@@ -67,6 +70,10 @@ rounds:
 			},
 			{
 				Since: NewPeriod(2023, time.September),
+				Criteria: Criteria{
+					MinAttestationsPerDay: 202,
+					MinDecidedsPerDay:     22,
+				},
 				Tiers: Tiers{
 					{MaxParticipants: 3000, APRBoost: mustParseETH("0.05")},
 					{MaxParticipants: 6000, APRBoost: mustParseETH("0.04")},
@@ -175,8 +182,18 @@ func TestPlan_Validate(t *testing.T) {
 			expectedErr: "max participants must be positive in mechanics",
 		},
 		{
-			name:        "missing rounds",
-			plan:        &Plan{Mechanics: MechanicsList{{Since: NewPeriod(2020, 1), Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}}}}},
+			name: "missing rounds",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since: NewPeriod(2020, 1),
+						Criteria: Criteria{
+							MinAttestationsPerDay: 1,
+							MinDecidedsPerDay:     1,
+						},
+						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}}},
+				},
+			},
 			expectedErr: "missing rounds",
 		},
 		{
@@ -185,6 +202,10 @@ func TestPlan_Validate(t *testing.T) {
 				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
+						Criteria: Criteria{
+							MinAttestationsPerDay: 1,
+							MinDecidedsPerDay:     1,
+						},
 						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},
 					},
 				},
@@ -198,6 +219,10 @@ func TestPlan_Validate(t *testing.T) {
 				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
+						Criteria: Criteria{
+							MinAttestationsPerDay: 1,
+							MinDecidedsPerDay:     1,
+						},
 						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},
 					},
 				},
@@ -210,12 +235,26 @@ func TestPlan_Validate(t *testing.T) {
 			plan: &Plan{
 				Mechanics: MechanicsList{
 					{
-						Since: NewPeriod(2020, 1),
-						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},
+						Since:    NewPeriod(2020, 1),
+						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
+						Tiers:    Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}, {Period: NewPeriod(2020, 2)}},
 			},
+		},
+		{
+			name: "missing criteria",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since: NewPeriod(2020, 1),
+						Tiers: Tiers{{MaxParticipants: 1}},
+					},
+				},
+				Rounds: Rounds{{Period: NewPeriod(2020, 1)}},
+			},
+			expectedErr: "missing criteria",
 		},
 	}
 	for _, tt := range tests {
