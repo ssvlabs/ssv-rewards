@@ -48,13 +48,36 @@ func (f Features) Validate() error {
 	return nil
 }
 
+type Criteria struct {
+	MinAttestationsPerDay int `yaml:"min_attestations_per_day"`
+	MinDecidedsPerDay     int `yaml:"min_decideds_per_day"`
+}
+
+func (c Criteria) Validate() error {
+	if c == (Criteria{}) {
+		return fmt.Errorf("missing criteria")
+	}
+
+	if c.MinAttestationsPerDay <= 0 {
+		return fmt.Errorf("missing or invalid min_attestations_per_day in criteria")
+	}
+
+	if c.MinDecidedsPerDay <= 0 {
+		return fmt.Errorf("missing or invalid min_decideds_per_day in criteria")
+	}
+
+	return nil
+}
+
 type OwnerRedirects map[ExecutionAddress]ExecutionAddress
 type ValidatorRedirects map[BLSPubKey]ExecutionAddress
 
 type Mechanics struct {
-	Since                  Period             `yaml:"since"`
-	Features               Features           `yaml:"features"`
-	Tiers                  Tiers              `yaml:"tiers"`
+	Since    Period   `yaml:"since"`
+	Features Features `yaml:"features"`
+	Tiers    Tiers    `yaml:"tiers"`
+	Criteria Criteria `yaml:"criteria"`
+
 	OwnerRedirects         OwnerRedirects     `yaml:"owner_redirects"`
 	ValidatorRedirects     ValidatorRedirects `yaml:"validator_redirects"`
 	OwnerRedirectsFile     string             `yaml:"owner_redirects_file"`

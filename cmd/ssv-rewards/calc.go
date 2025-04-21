@@ -344,8 +344,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	// Export exclusions.
 	exclusions, err := c.exclusions(
 		ctx,
-		completeRounds[0].Period,
-		completeRounds[len(completeRounds)-1].Period,
+		completeRounds,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get exclusions: %w", err)
@@ -375,7 +374,6 @@ func (c *CalcCmd) validatorParticipations(
 	ctx context.Context,
 	period rewards.Period,
 ) ([]*ValidatorParticipation, error) {
-	// Retrieve mechanics for the given period
 	mechanics, err := c.plan.Mechanics.At(period)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mechanics for period %s: %w", period, err)
@@ -392,8 +390,8 @@ func (c *CalcCmd) validatorParticipations(
 	return participations, queries.Raw(
 		"SELECT * FROM active_days_by_validator($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
-		c.plan.Criteria.MinAttestationsPerDay,
-		c.plan.Criteria.MinDecidedsPerDay,
+		mechanics.Criteria.MinAttestationsPerDay,
+		mechanics.Criteria.MinDecidedsPerDay,
 		time.Time(period),
 		nil, // to_period can be nil for single-period queries
 		gnosisSafeSupport,
@@ -444,11 +442,17 @@ func (c *CalcCmd) ownerParticipations(
 	period rewards.Period,
 ) ([]*OwnerParticipation, error) {
 	var rewards []*OwnerParticipation
+
+	mechanics, err := c.plan.Mechanics.At(period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mechanics for period %s: %w", period, err)
+	}
+
 	return rewards, queries.Raw(
 		"SELECT * FROM active_days_by_owner($1, $2, $3, $4)",
 		c.PerformanceProvider,
-		c.plan.Criteria.MinAttestationsPerDay,
-		c.plan.Criteria.MinDecidedsPerDay,
+		mechanics.Criteria.MinAttestationsPerDay,
+		mechanics.Criteria.MinDecidedsPerDay,
 		time.Time(period),
 	).Bind(ctx, c.db, &rewards)
 }
@@ -470,7 +474,6 @@ func (c *CalcCmd) recipientParticipations(
 	ctx context.Context,
 	period rewards.Period,
 ) ([]*RecipientParticipation, error) {
-	// Retrieve mechanics for the given period
 	mechanics, err := c.plan.Mechanics.At(period)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mechanics: %w", err)
@@ -487,8 +490,8 @@ func (c *CalcCmd) recipientParticipations(
 	return participations, queries.Raw(
 		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
-		c.plan.Criteria.MinAttestationsPerDay,
-		c.plan.Criteria.MinDecidedsPerDay,
+		mechanics.Criteria.MinAttestationsPerDay,
+		mechanics.Criteria.MinDecidedsPerDay,
 		time.Time(period),
 		nil,
 		gnosisSafeSupport,
@@ -612,11 +615,15 @@ type Exclusion struct {
 	ExclusionReason   string
 }
 
-func (c *CalcCmd) exclusions(
+func (c *CalcCmd) exclusionsForRound(
 	ctx context.Context,
-	fromPeriod rewards.Period,
-	toPeriod rewards.Period,
+	period rewards.Period,
 ) ([]*Exclusion, error) {
+	mechanics, err := c.plan.Mechanics.At(period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mechanics for period %s: %w", period, err)
+	}
+
 	var rows []struct {
 		Day               time.Time
 		FromEpoch         phase0.Epoch
@@ -627,17 +634,19 @@ func (c *CalcCmd) exclusions(
 		Events            sql.NullString
 		ExclusionReason   string
 	}
-	err := queries.Raw(
+
+	err = queries.Raw(
 		"SELECT * FROM inactive_days_by_validator($1, $2, $3, $4, $5)",
 		c.PerformanceProvider,
-		c.plan.Criteria.MinAttestationsPerDay,
-		c.plan.Criteria.MinDecidedsPerDay,
-		time.Time(fromPeriod),
-		time.Time(toPeriod),
+		mechanics.Criteria.MinAttestationsPerDay,
+		mechanics.Criteria.MinDecidedsPerDay,
+		time.Time(period),
+		time.Time(period),
 	).Bind(ctx, c.db, &rows)
 	if err != nil {
 		return nil, err
 	}
+
 	exclusions := make([]*Exclusion, len(rows))
 	for i, row := range rows {
 		exclusions[i] = &Exclusion{
@@ -651,6 +660,22 @@ func (c *CalcCmd) exclusions(
 			ExclusionReason:   row.ExclusionReason,
 		}
 	}
+	return exclusions, nil
+}
+
+func (c *CalcCmd) exclusions(
+	ctx context.Context,
+	rounds []rewards.Round,
+) ([]*Exclusion, error) {
+	var exclusions []*Exclusion
+	for _, round := range rounds {
+		e, err := c.exclusionsForRound(ctx, round.Period)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get exclusions for round %s: %w", round.Period, err)
+		}
+		exclusions = append(exclusions, e...)
+	}
+
 	return exclusions, nil
 }
 
