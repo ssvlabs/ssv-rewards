@@ -12,7 +12,6 @@ CREATE OR REPLACE FUNCTION active_days_by_validator(
     min_decideds INTEGER,
     from_period DATE,
     to_period DATE DEFAULT NULL,
-    gnosis_safe_support BOOLEAN DEFAULT FALSE,
     owner_redirects_support BOOLEAN DEFAULT FALSE,
     validator_redirects_support BOOLEAN DEFAULT FALSE
 )
@@ -34,9 +33,7 @@ BEGIN
             CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
             -- Priority 2: Owner redirects
             CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
-            -- Priority 3: Deployer
-            CASE WHEN NOT gnosis_safe_support OR NOT d.gnosis_safe THEN d.deployer_address ELSE NULL END,
-            -- Priority 4: Default owner address
+            -- Priority 3: Default owner address
             vp.owner_address
         ) AS recipient_address,
         vp.owner_address,
@@ -45,7 +42,6 @@ BEGIN
     FROM validator_performances AS vp
     LEFT JOIN validator_redirects vr ON vp.public_key = vr.public_key AND validator_redirects_support
     LEFT JOIN owner_redirects owr ON vp.owner_address = owr.from_address AND owner_redirects_support
-    LEFT JOIN deployers d ON vp.owner_address = d.owner_address AND (NOT gnosis_safe_support OR NOT d.gnosis_safe)
 
     WHERE provider = _provider
         AND solvent_whole_day
@@ -58,7 +54,6 @@ BEGIN
         COALESCE(
             CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
             CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
-            CASE WHEN NOT gnosis_safe_support OR NOT d.gnosis_safe THEN d.deployer_address ELSE NULL END,
             vp.owner_address
         );
 END;
@@ -94,13 +89,11 @@ CREATE OR REPLACE FUNCTION active_days_by_recipient(
     min_decideds INTEGER,
     from_period DATE,
     to_period DATE DEFAULT NULL,
-    gnosis_safe_support BOOLEAN DEFAULT FALSE,
     owner_redirects_support BOOLEAN DEFAULT FALSE,
     validator_redirects_support BOOLEAN DEFAULT FALSE
 )
 RETURNS TABLE (
     recipient_address TEXT,
-    is_deployer BOOLEAN,
     validators BIGINT,
     active_days BIGINT
 ) AS $$
@@ -108,7 +101,6 @@ BEGIN
     RETURN QUERY
     SELECT
         adv.recipient_address,
-        BOOL_OR(d.deployer_address IS NOT NULL) AS is_deployer,
         COUNT(adv.public_key) AS validators,
         SUM(adv.active_days)::BIGINT AS active_days
     FROM active_days_by_validator(
@@ -117,11 +109,9 @@ BEGIN
         min_decideds,
         from_period,
         to_period,
-        gnosis_safe_support,
         owner_redirects_support,
         validator_redirects_support
     ) adv
-    LEFT JOIN deployers d ON adv.owner_address = d.owner_address AND (NOT gnosis_safe_support OR NOT d.gnosis_safe)
     GROUP BY adv.recipient_address;
 END;
 $$ LANGUAGE plpgsql STABLE;

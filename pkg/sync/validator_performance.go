@@ -10,23 +10,22 @@ import (
 	"sync"
 	"time"
 
-	eth2client "github.com/attestantio/go-eth2-client"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/carlmjohnson/requests"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/schollz/progressbar/v3"
 	"github.com/sourcegraph/conc/pool"
+	"github.com/volatiletech/null/v8"
+	"github.com/volatiletech/sqlboiler/v4/boil"
+	"github.com/volatiletech/sqlboiler/v4/queries/qm"
+	"go.uber.org/zap"
 
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
-	"github.com/bloxapp/ssv/eth/eventparser"
-	"github.com/schollz/progressbar/v3"
-	"github.com/volatiletech/null/v8"
-	"github.com/volatiletech/sqlboiler/v4/boil"
-	"github.com/volatiletech/sqlboiler/v4/queries/qm"
-	"go.uber.org/zap"
 )
 
 func SyncValidatorPerformance(
@@ -34,7 +33,6 @@ func SyncValidatorPerformance(
 	logger *zap.Logger,
 	spec beacon.Spec,
 	ethClient *ethclient.Client,
-	cl eth2client.Service,
 	db *sql.DB,
 	ssvAPIEndpoint string,
 	provider performance.Provider,

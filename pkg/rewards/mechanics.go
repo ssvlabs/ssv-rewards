@@ -9,45 +9,6 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/precise"
 )
 
-const (
-	// FeatureGnosisSafe prevents rewarding deployer addresses of Gnosis Safes.
-	FeatureGnosisSafe Feature = "gnosis_safe"
-)
-
-var AvailableFeatures = Features{
-	FeatureGnosisSafe,
-}
-
-type Feature string
-
-func (f Feature) String() string {
-	return string(f)
-}
-
-func (f Feature) Valid() bool {
-	return AvailableFeatures.Enabled(f)
-}
-
-type Features []Feature
-
-func (f Features) Enabled(feature Feature) bool {
-	for _, f := range f {
-		if f == feature {
-			return true
-		}
-	}
-	return false
-}
-
-func (f Features) Validate() error {
-	for _, feature := range f {
-		if !feature.Valid() {
-			return fmt.Errorf("invalid feature: %s", feature)
-		}
-	}
-	return nil
-}
-
 type Criteria struct {
 	MinAttestationsPerDay int `yaml:"min_attestations_per_day"`
 	MinDecidedsPerDay     int `yaml:"min_decideds_per_day"`
@@ -74,7 +35,6 @@ type ValidatorRedirects map[BLSPubKey]ExecutionAddress
 
 type Mechanics struct {
 	Since    Period   `yaml:"since"`
-	Features Features `yaml:"features"`
 	Tiers    Tiers    `yaml:"tiers"`
 	Criteria Criteria `yaml:"criteria"`
 
