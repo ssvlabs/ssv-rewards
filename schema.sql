@@ -52,14 +52,6 @@ CREATE TABLE IF NOT EXISTS validator_events (
 	UNIQUE (block_number, log_index, owner_address, public_key)
 );
 
-CREATE TABLE IF NOT EXISTS deployers (
-	owner_address TEXT NOT NULL,
-	deployer_address TEXT NOT NULL,
-	gnosis_safe BOOLEAN NOT NULL,
-	tx_hash TEXT NOT NULL,
-	PRIMARY KEY (owner_address)
-);
-
 CREATE TABLE IF NOT EXISTS owner_redirects (
 	from_address TEXT NOT NULL,
 	to_address TEXT NOT NULL,

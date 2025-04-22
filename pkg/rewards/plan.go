@@ -52,9 +52,6 @@ func (p *Plan) validate() error {
 		if time.Time(mechanics.Since).IsZero() {
 			return errors.New("zero period in mechanics")
 		}
-		if err := mechanics.Features.Validate(); err != nil {
-			return fmt.Errorf("failed to validate features: %w", err)
-		}
 		if len(mechanics.Tiers) == 0 {
 			return errors.New("missing tiers in mechanics")
 		}

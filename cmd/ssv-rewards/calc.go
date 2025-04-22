@@ -386,15 +386,13 @@ func (c *CalcCmd) validatorParticipations(
 	}
 
 	var participations []*ValidatorParticipation
-	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
 	return participations, queries.Raw(
-		"SELECT * FROM active_days_by_validator($1, $2, $3, $4, $5, $6, $7, $8)",
+		"SELECT * FROM active_days_by_validator($1, $2, $3, $4, $5, $6, $7)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
 		time.Time(period),
 		nil, // to_period can be nil for single-period queries
-		gnosisSafeSupport,
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
 	).Bind(ctx, c.db, &participations)
@@ -459,7 +457,6 @@ func (c *CalcCmd) ownerParticipations(
 
 type RecipientParticipation struct {
 	RecipientAddress string
-	IsDeployer       bool
 	ActiveDays       int
 	Reward           *precise.ETH `boil:"-"`
 	reward           *big.Int     `boil:"-"`
@@ -486,15 +483,13 @@ func (c *CalcCmd) recipientParticipations(
 	}
 
 	var participations []*RecipientParticipation
-	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
 	return participations, queries.Raw(
-		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7, $8)",
+		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
 		time.Time(period),
 		nil,
-		gnosisSafeSupport,
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
 	).Bind(ctx, c.db, &participations)
