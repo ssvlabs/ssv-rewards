@@ -85,7 +85,10 @@ CREATE TABLE IF NOT EXISTS validator_performances (
 	end_beacon_status TEXT,
 	decideds INT,
 
-	effectiveness REAL,
+    start_effective_balance BIGINT,
+    end_effective_balance BIGINT,
+
+    effectiveness REAL,
 	attestation_rate REAL,
 	attestations_assigned SMALLINT,
 	attestations_executed SMALLINT,

@@ -25,6 +25,9 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 )
 
+// EffectiveBalanceUnitGwei 32 ETH in Gwei (32 * 1e9 = 32_000_000_000)
+const EffectiveBalanceUnitGwei = 32_000_000_000
+
 type CalcCmd struct {
 	Dir                 string `default:"./rewards" help:"Path to save the rewards to,"`
 	PerformanceProvider string `default:"beaconcha" help:"Performance provider to use." enum:"beaconcha,e2m"`
@@ -186,7 +189,11 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		// Calculate appropriate tier and rewards.
-		tier, err := c.plan.Tier(round.Period, len(validatorParticipations))
+		effectiveBalanceUnits := 0
+		for _, v := range validatorParticipations {
+			effectiveBalanceUnits += int(v.EffectiveBalance / EffectiveBalanceUnitGwei)
+		}
+		tier, err := c.plan.Tier(round.Period, effectiveBalanceUnits)
 		if err != nil {
 			return fmt.Errorf("failed to get tier (period: %s): %w", round.Period, err)
 		}
@@ -201,10 +208,14 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		// Attach rewards to participations.
 		ownerActiveDays := map[string]int{}
 		for _, participation := range validatorParticipations {
-			// participation.Reward = dailyReward * float64(participation.ActiveDays)
-			participation.reward = new(
-				big.Int,
-			).Mul(dailyReward, big.NewInt(int64(participation.ActiveDays)))
+			eb := participation.EffectiveBalance
+			if eb == 0 {
+				return fmt.Errorf("effective balance is zero for validator %q", participation.PublicKey)
+			}
+			scaledDays := new(big.Int).Mul(big.NewInt(int64(participation.ActiveDays)), big.NewInt(eb))
+			scaledDays.Div(scaledDays, big.NewInt(EffectiveBalanceUnitGwei)) // normalize to 32 ETH
+			participation.reward = new(big.Int).Mul(dailyReward, scaledDays)
+
 			ownerActiveDays[participation.OwnerAddress] += participation.ActiveDays
 
 			byValidator = append(byValidator, &ValidatorParticipationRound{
@@ -220,9 +231,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			}
 		}
 		for _, participation := range ownerParticipations {
-			participation.reward = new(
-				big.Int,
-			).Mul(dailyReward, big.NewInt(int64(participation.ActiveDays)))
+			scaledDays := new(big.Int).Mul(
+				big.NewInt(int64(participation.ActiveDays)),
+				big.NewInt(participation.EffectiveBalance),
+			)
+			scaledDays.Div(scaledDays, big.NewInt(EffectiveBalanceUnitGwei)) // Normalize to 32 ETH
+			participation.reward = new(big.Int).Mul(dailyReward, scaledDays)
 
 			if participation.ActiveDays != ownerActiveDays[participation.OwnerAddress] {
 				return fmt.Errorf(
@@ -361,6 +375,7 @@ type ValidatorParticipation struct {
 	RecipientAddress string
 	PublicKey        string
 	ActiveDays       int
+	EffectiveBalance int64
 	Reward           *precise.ETH `boil:"-"`
 	reward           *big.Int     `boil:"-"`
 }
@@ -423,11 +438,12 @@ func (c *CalcCmd) prepareRedirections(
 }
 
 type OwnerParticipation struct {
-	OwnerAddress string
-	Validators   int
-	ActiveDays   int
-	Reward       *precise.ETH `boil:"-"`
-	reward       *big.Int     `boil:"-"`
+	OwnerAddress     string
+	Validators       int
+	ActiveDays       int
+	EffectiveBalance int64        `boil:"effective_balance"`
+	Reward           *precise.ETH `boil:"-"`
+	reward           *big.Int     `boil:"-"`
 }
 
 type OwnerParticipationRound struct {
