@@ -6,15 +6,15 @@ mechanics:
       min_attestations_per_day: 202
       min_decideds_per_day: 22
     tiers:
-    - max_participants: 2000
+    - max_effective_balance: 64000
       apr_boost: 0.5
-    - max_participants: 5000
+    - max_effective_balance: 160000
       apr_boost: 0.4
-    - max_participants: 10000
+    - max_effective_balance: 320000
       apr_boost: 0.3
-    - max_participants: 15000
+    - max_effective_balance: 480000
       apr_boost: 0.2
-    - max_participants: 30000
+    - max_effective_balance: 960000
       apr_boost: 0.1
 
   - since: 2023-09
@@ -22,15 +22,15 @@ mechanics:
       min_attestations_per_day: 202
       min_decideds_per_day: 22
     tiers:
-    - max_participants: 2000
+    - max_effective_balance: 64000
       apr_boost: 0.05
-    - max_participants: 5000
+    - max_effective_balance: 160000
       apr_boost: 0.04
-    - max_participants: 10000
+    - max_effective_balance: 320000
       apr_boost: 0.03
-    - max_participants: 15000
+    - max_effective_balance: 480000
       apr_boost: 0.02
-    - max_participants: 30000
+    - max_effective_balance: 960000
       apr_boost: 0.01
     # Redirect rewards to different addresses.
     # The left-hand side is the owner address, and the right-hand side is the reward recipient address.

@@ -45,14 +45,14 @@ type Mechanics struct {
 }
 
 type Tier struct {
-	MaxParticipants int          `yaml:"max_participants"`
-	APRBoost        *precise.ETH `yaml:"apr_boost"`
+	MaxEffectiveBalance int64        `yaml:"max_effective_balance"` // in ETH
+	APRBoost            *precise.ETH `yaml:"apr_boost"`
 }
 
 type Tiers []Tier
 
 func (t Tiers) Len() int           { return len(t) }
-func (t Tiers) Less(i, j int) bool { return t[i].MaxParticipants < t[j].MaxParticipants }
+func (t Tiers) Less(i, j int) bool { return t[i].MaxEffectiveBalance < t[j].MaxEffectiveBalance }
 func (t Tiers) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
 
 type MechanicsList []Mechanics

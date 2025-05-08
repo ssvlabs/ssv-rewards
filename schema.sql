@@ -81,12 +81,10 @@ CREATE TABLE IF NOT EXISTS validator_performances (
 	public_key TEXT NOT NULL REFERENCES validators(public_key),
 	solvent_whole_day BOOLEAN NOT NULL,
 	index INT,
+    end_effective_balance BIGINT,
 	start_beacon_status TEXT,
 	end_beacon_status TEXT,
 	decideds INT,
-
-    start_effective_balance BIGINT,
-    end_effective_balance BIGINT,
 
     effectiveness REAL,
 	attestation_rate REAL,

@@ -18,24 +18,24 @@ mechanics:
       min_attestations_per_day: 202
       min_decideds_per_day: 22
     tiers:
-      - max_participants: 2000
+      - max_effective_balance: 64000
         apr_boost: 0.5
-      - max_participants: 5000
+      - max_effective_balance: 160000
         apr_boost: 0.4
-      - max_participants: 10000
+      - max_effective_balance: 320000
         apr_boost: 0.3
-      - max_participants: 15000
+      - max_effective_balance: 480000
         apr_boost: 0.2
-      - max_participants: 30000
+      - max_effective_balance: 960000
         apr_boost: 0.1
   - since: 2023-09
     criteria:
       min_attestations_per_day: 202
       min_decideds_per_day: 22
     tiers:
-      - max_participants: 3000
+      - max_effective_balance: 96000
         apr_boost: 0.05
-      - max_participants: 6000
+      - max_effective_balance: 192000
         apr_boost: 0.04
 
 rounds:
@@ -61,11 +61,11 @@ rounds:
 					MinDecidedsPerDay:     22,
 				},
 				Tiers: Tiers{
-					{MaxParticipants: 2000, APRBoost: mustParseETH("0.5")},
-					{MaxParticipants: 5000, APRBoost: mustParseETH("0.4")},
-					{MaxParticipants: 10000, APRBoost: mustParseETH("0.3")},
-					{MaxParticipants: 15000, APRBoost: mustParseETH("0.2")},
-					{MaxParticipants: 30000, APRBoost: mustParseETH("0.1")},
+					{MaxEffectiveBalance: 64000, APRBoost: mustParseETH("0.5")},
+					{MaxEffectiveBalance: 160000, APRBoost: mustParseETH("0.4")},
+					{MaxEffectiveBalance: 320000, APRBoost: mustParseETH("0.3")},
+					{MaxEffectiveBalance: 480000, APRBoost: mustParseETH("0.2")},
+					{MaxEffectiveBalance: 960000, APRBoost: mustParseETH("0.1")},
 				},
 			},
 			{
@@ -75,8 +75,8 @@ rounds:
 					MinDecidedsPerDay:     22,
 				},
 				Tiers: Tiers{
-					{MaxParticipants: 3000, APRBoost: mustParseETH("0.05")},
-					{MaxParticipants: 6000, APRBoost: mustParseETH("0.04")},
+					{MaxEffectiveBalance: 96000, APRBoost: mustParseETH("0.05")},
+					{MaxEffectiveBalance: 192000, APRBoost: mustParseETH("0.04")},
 				},
 			},
 		},
@@ -148,7 +148,7 @@ func TestPlan_Validate(t *testing.T) {
 				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
-						Tiers: Tiers{{MaxParticipants: 2}, {MaxParticipants: 1}},
+						Tiers: Tiers{{MaxEffectiveBalance: 64}, {MaxEffectiveBalance: 32}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}},
@@ -161,12 +161,12 @@ func TestPlan_Validate(t *testing.T) {
 				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
-						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: 1}},
+						Tiers: Tiers{{MaxEffectiveBalance: 32}, {MaxEffectiveBalance: 32}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}},
 			},
-			expectedErr: "duplicate tier: 1 in mechanics",
+			expectedErr: "duplicate tier: 32 in mechanics",
 		},
 		{
 			name: "zero max participants",
@@ -174,12 +174,12 @@ func TestPlan_Validate(t *testing.T) {
 				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
-						Tiers: Tiers{{MaxParticipants: 0}},
+						Tiers: Tiers{{MaxEffectiveBalance: 0}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}},
 			},
-			expectedErr: "max participants must be positive in mechanics",
+			expectedErr: "max effective balance must be positive in mechanics",
 		},
 		{
 			name: "missing rounds",
@@ -191,7 +191,7 @@ func TestPlan_Validate(t *testing.T) {
 							MinAttestationsPerDay: 1,
 							MinDecidedsPerDay:     1,
 						},
-						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}}},
+						Tiers: Tiers{{MaxEffectiveBalance: 32}, {MaxEffectiveBalance: math.MaxInt}}},
 				},
 			},
 			expectedErr: "missing rounds",
@@ -206,7 +206,7 @@ func TestPlan_Validate(t *testing.T) {
 							MinAttestationsPerDay: 1,
 							MinDecidedsPerDay:     1,
 						},
-						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},
+						Tiers: Tiers{{MaxEffectiveBalance: 32}, {MaxEffectiveBalance: math.MaxInt}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 2)}, {Period: NewPeriod(2020, 1)}},
@@ -223,7 +223,7 @@ func TestPlan_Validate(t *testing.T) {
 							MinAttestationsPerDay: 1,
 							MinDecidedsPerDay:     1,
 						},
-						Tiers: Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},
+						Tiers: Tiers{{MaxEffectiveBalance: 32}, {MaxEffectiveBalance: math.MaxInt}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}, {Period: NewPeriod(2020, 1)}},
@@ -237,7 +237,7 @@ func TestPlan_Validate(t *testing.T) {
 					{
 						Since:    NewPeriod(2020, 1),
 						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
-						Tiers:    Tiers{{MaxParticipants: 1}, {MaxParticipants: math.MaxInt}},
+						Tiers:    Tiers{{MaxEffectiveBalance: 32}, {MaxEffectiveBalance: math.MaxInt}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}, {Period: NewPeriod(2020, 2)}},
@@ -249,7 +249,7 @@ func TestPlan_Validate(t *testing.T) {
 				Mechanics: MechanicsList{
 					{
 						Since: NewPeriod(2020, 1),
-						Tiers: Tiers{{MaxParticipants: 1}},
+						Tiers: Tiers{{MaxEffectiveBalance: 32}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}},

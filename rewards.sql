@@ -1,5 +1,4 @@
 DROP FUNCTION IF EXISTS active_days_by_validator(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN, BOOLEAN);
-DROP FUNCTION IF EXISTS active_days_by_owner(provider_type, INTEGER, INTEGER, DATE, DATE);
 DROP FUNCTION IF EXISTS inactive_days_by_validator(provider_type, INTEGER, DATE, DATE);
 
 CREATE OR REPLACE FUNCTION active_days_by_validator(
@@ -16,124 +15,44 @@ RETURNS TABLE (
     owner_address TEXT,
     public_key TEXT,
     active_days BIGINT,
-    effective_balance BIGINT
+    registered_days BIGINT,
+    active_effective_balance BIGINT,
+    registered_effective_balance BIGINT
 ) AS $$
-BEGIN
-    IF to_period IS NULL THEN
-        to_period := from_period;
-    END IF;
-
-    RETURN QUERY
-    SELECT
-        COALESCE(
-            -- Priority 1: Validator redirects
-            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
-            -- Priority 2: Owner redirects
-            CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
-            -- Priority 3: Default owner address
-            vp.owner_address
-        ) AS recipient_address,
-        vp.owner_address,
-        vp.public_key,
-        COUNT(vp.*) AS active_days,
-        ROUND(AVG(vp.end_effective_balance))::BIGINT AS effective_balance
-    FROM validator_performances AS vp
-    LEFT JOIN validator_redirects vr ON vp.public_key = vr.public_key AND validator_redirects_support
-    LEFT JOIN owner_redirects owr ON vp.owner_address = owr.from_address AND owner_redirects_support
-
-    WHERE provider = _provider
-        AND solvent_whole_day
-        AND attestations_executed >= min_attestations
-        AND decideds >= min_decideds
-        AND date_trunc('month', day) BETWEEN date_trunc('month', from_period) AND date_trunc('month', to_period)
-    GROUP BY
-        vp.owner_address,
-        vp.public_key,
-        COALESCE(
-            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
-            CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
-            vp.owner_address
-        );
-END;
-$$ LANGUAGE plpgsql STABLE;
-
-CREATE OR REPLACE FUNCTION registered_days_by_validator(
-    _provider provider_type,
-    from_period DATE,
-    to_period DATE DEFAULT NULL,
-    owner_redirects_support BOOLEAN DEFAULT FALSE,
-    validator_redirects_support BOOLEAN DEFAULT FALSE
-)
-RETURNS TABLE (
-    recipient_address TEXT,
-    owner_address TEXT,
-    public_key TEXT,
-    registered_days BIGINT
-) AS $$
-BEGIN
-    IF to_period IS NULL THEN
-        to_period := from_period;
-END IF;
-
-RETURN QUERY
-SELECT
-    COALESCE(
-        -- Priority 1: Validator redirects
-            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
-        -- Priority 2: Owner redirects
-            CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
-        -- Priority 3: Default owner address
-            vp.owner_address
-    ) AS recipient_address,
-    vp.owner_address,
-    vp.public_key,
-    COUNT(*) AS registered_days
-FROM validator_performances AS vp
-         LEFT JOIN validator_redirects vr ON vp.public_key = vr.public_key AND validator_redirects_support
-         LEFT JOIN owner_redirects owr ON vp.owner_address = owr.from_address AND owner_redirects_support
-
-WHERE vp.provider = _provider
-  AND vp.solvent_whole_day
-  AND date_trunc('month', vp.day) BETWEEN date_trunc('month', from_period) AND date_trunc('month', to_period)
-
-GROUP BY
-    vp.owner_address,
-    vp.public_key,
-    COALESCE(
-            CASE WHEN validator_redirects_support THEN vr.to_address ELSE NULL END,
-            CASE WHEN owner_redirects_support THEN owr.to_address ELSE NULL END,
-            vp.owner_address
-    );
-END;
-$$ LANGUAGE plpgsql STABLE;
-
-
-CREATE OR REPLACE FUNCTION active_days_by_owner(
-    _provider provider_type,
-    min_attestations INTEGER,
-    min_decideds INTEGER,
-    from_period DATE,
-    to_period DATE DEFAULT NULL
-)
-RETURNS TABLE (
-    owner_address TEXT,
-    validators BIGINT,
-    active_days BIGINT,
-    effective_balance BIGINT
-) AS $$
+DECLARE
+    _from_month DATE := date_trunc('month', from_period);
+    _to_month DATE := date_trunc('month', COALESCE(to_period, from_period));
 BEGIN
     RETURN QUERY
+        WITH vp_redirected AS (
+        SELECT
+            vp.owner_address,
+            vp.public_key,
+            vp.end_effective_balance,
+            COALESCE(
+                CASE WHEN validator_redirects_support THEN vr.to_address END,
+                CASE WHEN owner_redirects_support THEN owr.to_address END,
+                vp.owner_address
+            ) AS recipient_address,
+            ((vp.attestations_executed >= min_attestations) AND (vp.decideds >= min_decideds))::BOOLEAN AS is_active
+        FROM validator_performances vp
+        LEFT JOIN validator_redirects vr ON validator_redirects_support AND vp.public_key = vr.public_key
+        LEFT JOIN owner_redirects owr ON owner_redirects_support AND vp.owner_address = owr.from_address
+        WHERE vp.provider = _provider
+          AND vp.day >= _from_month AND vp.day < (_to_month + INTERVAL '1 month')
+          AND vp.solvent_whole_day
+    )
     SELECT
-        dr.owner_address,
-        COUNT(dr.public_key) AS number_of_validators,
-        SUM(dr.active_days)::BIGINT AS active_days,
-        CASE
-            WHEN SUM(dr.active_days) > 0 THEN
-                (SUM(dr.active_days * dr.effective_balance) / SUM(dr.active_days))::BIGINT
-            ELSE 0
-        END AS effective_balance
-    FROM active_days_by_validator(_provider, min_attestations, min_decideds, from_period, to_period) dr
-    GROUP BY dr.owner_address;
+        vpr.recipient_address,
+        vpr.owner_address,
+        vpr.public_key,
+        COUNT(*) FILTER (WHERE vpr.is_active) AS active_days,
+        COUNT(*) AS registered_days,
+        COALESCE(SUM(end_effective_balance) FILTER (WHERE vpr.is_active), 0)::BIGINT AS active_effective_balance,
+        COALESCE(SUM(end_effective_balance), 0)::BIGINT AS registered_effective_balance
+    FROM vp_redirected vpr
+    GROUP BY vpr.recipient_address, vpr.owner_address, vpr.public_key
+    HAVING COUNT(*) FILTER (WHERE is_active) > 0;
 END;
 $$ LANGUAGE plpgsql STABLE;
 
@@ -149,14 +68,20 @@ CREATE OR REPLACE FUNCTION active_days_by_recipient(
 RETURNS TABLE (
     recipient_address TEXT,
     validators BIGINT,
-    active_days BIGINT
+    active_days BIGINT,
+    registered_days BIGINT,
+    active_effective_balance BIGINT,
+    registered_effective_balance BIGINT
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT
         adv.recipient_address,
         COUNT(adv.public_key) AS validators,
-        SUM(adv.active_days)::BIGINT AS active_days
+        SUM(adv.active_days)::BIGINT AS active_days,
+        SUM(adv.registered_days)::BIGINT AS registered_days,
+        SUM(adv.active_effective_balance)::BIGINT AS active_effective_balance,
+        SUM(adv.registered_effective_balance)::BIGINT AS registered_effective_balance
     FROM active_days_by_validator(
         _provider,
         min_attestations,
@@ -167,6 +92,47 @@ BEGIN
         validator_redirects_support
     ) adv
     GROUP BY adv.recipient_address;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+CREATE OR REPLACE FUNCTION active_days_by_owner(
+    _provider provider_type,
+    min_attestations INTEGER,
+    min_decideds INTEGER,
+    from_period DATE,
+    to_period DATE DEFAULT NULL,
+    owner_redirects_support BOOLEAN DEFAULT FALSE,
+    validator_redirects_support BOOLEAN DEFAULT FALSE
+)
+RETURNS TABLE (
+    recipient_address TEXT,
+    owner_address TEXT,
+    validators BIGINT,
+    active_days BIGINT,
+    registered_days BIGINT,
+    active_effective_balance BIGINT,
+    registered_effective_balance BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        adv.recipient_address,
+        adv.owner_address,
+        COUNT(adv.public_key) AS validators,
+        SUM(adv.active_days)::BIGINT AS active_days,
+        SUM(adv.registered_days)::BIGINT AS registered_days,
+        SUM(adv.active_effective_balance)::BIGINT AS active_effective_balance,
+        SUM(adv.registered_effective_balance)::BIGINT AS registered_effective_balance
+    FROM active_days_by_validator(
+        _provider,
+        min_attestations,
+        min_decideds,
+        from_period,
+        to_period,
+        owner_redirects_support,
+        validator_redirects_support
+    ) adv
+    GROUP BY adv.owner_address, adv.recipient_address;
 END;
 $$ LANGUAGE plpgsql STABLE;
 

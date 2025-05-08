@@ -43,17 +43,17 @@ mechanics:
       min_attestations_per_day: 202
       min_decideds_per_day: 22    
     tiers:
-      - max_participants: 2000 # Effective at up to 2,000 validators
+      - max_effective_balance: 64000 # Effective at up to 64000 effective balance
         apr_boost: 0.5 # Fraction of ETH APR to reward in SSV tokens
       # ...
-      - max_participants: 30000
+      - max_effective_balance: 96000
         apr_boost: 0.1
   - since: 2023-11
     tiers:
-      - max_participants: 2000
+      - max_effective_balance: 64000
         apr_boost: 0.25
       # ...
-      - max_participants: 30000
+      - max_effective_balance: 960000
         apr_boost: 0.05
     # Redirect rewards to different addresses.
     # The left-hand side is the owner address, and the right-hand side is the reward recipient address.
