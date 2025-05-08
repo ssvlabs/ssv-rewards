@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
 )
 
@@ -25,11 +26,12 @@ type Provider interface {
 }
 
 type ValidatorPerformance struct {
-	Effectiveness   *float32
-	AttestationRate float32
-	Proposals       DutyPerformance
-	Attestations    DutyPerformance
-	SyncCommittee   DutyPerformance
+	Effectiveness       *float32
+	AttestationRate     float32
+	EndEffectiveBalance int64
+	Proposals           DutyPerformance
+	Attestations        DutyPerformance
+	SyncCommittee       DutyPerformance
 }
 
 type DutyPerformance struct {
