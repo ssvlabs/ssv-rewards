@@ -7,10 +7,11 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/carlmjohnson/requests"
+
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
-	"github.com/carlmjohnson/requests"
 )
 
 const (
@@ -101,6 +102,7 @@ func (m *Client) ValidatorPerformance(
 				Executed: int16(d.ParticipatedSync),
 				Missed:   int16(d.MissedSync),
 			},
+			EndEffectiveBalance: int64(d.EndEffectiveBalance),
 		}
 		performance.AttestationRate = float32(
 			performance.Attestations.Executed,

@@ -58,13 +58,13 @@ func (p *Plan) validate() error {
 		if !sort.IsSorted(mechanics.Tiers) {
 			return errors.New("tiers are not sorted by max participants in mechanics")
 		}
-		if mechanics.Tiers[0].MaxParticipants == 0 {
-			return errors.New("max participants must be positive in mechanics")
+		if mechanics.Tiers[0].MaxEffectiveBalance == 0 {
+			return errors.New("max effective balance must be positive in mechanics")
 		}
 		if len(mechanics.Tiers) > 1 {
 			for j := 1; j < len(mechanics.Tiers); j++ {
-				if mechanics.Tiers[j-1].MaxParticipants == mechanics.Tiers[j].MaxParticipants {
-					return fmt.Errorf("duplicate tier: %d in mechanics", mechanics.Tiers[j].MaxParticipants)
+				if mechanics.Tiers[j-1].MaxEffectiveBalance == mechanics.Tiers[j].MaxEffectiveBalance {
+					return fmt.Errorf("duplicate tier: %d in mechanics", mechanics.Tiers[j].MaxEffectiveBalance)
 				}
 			}
 		}
@@ -106,6 +106,10 @@ func (p *Plan) validate() error {
 		return errors.New("rounds are not sorted by period")
 	}
 	for i := 1; i < len(p.Rounds); i++ {
+		round := p.Rounds[i-1]
+		if round.NetworkFee != nil && round.NetworkFee.Sign() < 0 {
+			return fmt.Errorf("network_fee cannot be negative in round %s", round.Period)
+		}
 		if p.Rounds[i-1].Period == p.Rounds[i].Period {
 			return fmt.Errorf("duplicate round: %s", p.Rounds[i].Period)
 		}
@@ -115,9 +119,9 @@ func (p *Plan) validate() error {
 
 func (p *Plan) ValidatorRewards(
 	period Period,
-	participants int,
+	totalEffectiveBalanceGwei int64,
 ) (daily, monthly, annual *big.Int, err error) {
-	tier, err := p.Tier(period, participants)
+	tier, err := p.Tier(period, totalEffectiveBalanceGwei)
 	if err != nil {
 		err = fmt.Errorf("failed to determine tier: %w", err)
 		return
@@ -145,9 +149,9 @@ func (p *Plan) ValidatorRewards(
 	return
 }
 
-func (p *Plan) Tier(period Period, participants int) (*Tier, error) {
-	if participants <= 0 {
-		return nil, errors.New("participants must be positive")
+func (p *Plan) Tier(period Period, totalEffectiveBalanceGwei int64) (*Tier, error) {
+	if totalEffectiveBalanceGwei <= 0 {
+		return nil, errors.New("totalEffectiveBalance must be positive")
 	}
 	mechanics, err := p.Mechanics.At(period)
 	if err != nil {
@@ -156,18 +160,22 @@ func (p *Plan) Tier(period Period, participants int) (*Tier, error) {
 	if !sort.IsSorted(mechanics.Tiers) {
 		return nil, errors.New("tiers aren't sorted")
 	}
+
+	totalEffectiveBalance := totalEffectiveBalanceGwei / 1e9 // Convert Gwei to Wei
+
 	for _, tier := range mechanics.Tiers {
-		if participants <= tier.MaxParticipants {
+		if totalEffectiveBalance <= tier.MaxEffectiveBalance {
 			return &tier, nil
 		}
 	}
-	return nil, errors.New("participants exceed highest tier")
+	return nil, errors.New("totalEffectiveBalance exceed highest tier")
 }
 
 type Round struct {
-	Period Period       `yaml:"period"`
-	ETHAPR *precise.ETH `yaml:"eth_apr"`
-	SSVETH *precise.ETH `yaml:"ssv_eth"`
+	Period     Period       `yaml:"period"`
+	ETHAPR     *precise.ETH `yaml:"eth_apr"`
+	SSVETH     *precise.ETH `yaml:"ssv_eth"`
+	NetworkFee *big.Int     `yaml:"network_fee,omitempty"`
 }
 
 type Rounds []Round
