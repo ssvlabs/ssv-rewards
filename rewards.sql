@@ -1,7 +1,4 @@
-DROP FUNCTION IF EXISTS active_days_by_validator(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN, BOOLEAN);
-DROP FUNCTION IF EXISTS inactive_days_by_validator(provider_type, INTEGER, DATE, DATE);
-
-CREATE OR REPLACE FUNCTION active_days_by_validator(
+CREATE OR REPLACE FUNCTION participations_by_validator(
     _provider provider_type,
     min_attestations INTEGER,
     min_decideds INTEGER,
@@ -56,7 +53,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION active_days_by_recipient(
+CREATE OR REPLACE FUNCTION participations_by_recipient(
     _provider provider_type,
     min_attestations INTEGER,
     min_decideds INTEGER,
@@ -82,7 +79,7 @@ BEGIN
         SUM(adv.registered_days)::BIGINT AS registered_days,
         SUM(adv.active_effective_balance)::BIGINT AS active_effective_balance,
         SUM(adv.registered_effective_balance)::BIGINT AS registered_effective_balance
-    FROM active_days_by_validator(
+    FROM participations_by_validator(
         _provider,
         min_attestations,
         min_decideds,
@@ -95,7 +92,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION active_days_by_owner(
+CREATE OR REPLACE FUNCTION participations_by_owner(
     _provider provider_type,
     min_attestations INTEGER,
     min_decideds INTEGER,
@@ -123,7 +120,7 @@ BEGIN
         SUM(adv.registered_days)::BIGINT AS registered_days,
         SUM(adv.active_effective_balance)::BIGINT AS active_effective_balance,
         SUM(adv.registered_effective_balance)::BIGINT AS registered_effective_balance
-    FROM active_days_by_validator(
+    FROM participations_by_validator(
         _provider,
         min_attestations,
         min_decideds,
@@ -136,7 +133,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION inactive_days_by_validator(
+CREATE OR REPLACE FUNCTION participations_by_owner(
     _provider provider_type,
     min_attestations INTEGER,
     min_decideds INTEGER,
