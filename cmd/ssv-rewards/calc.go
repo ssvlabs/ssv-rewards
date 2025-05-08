@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -313,28 +312,19 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			return fmt.Errorf("failed to create directory %q: %w", dir, err)
 		}
 		for _, participation := range validatorParticipations {
-			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-			participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
-			participation.ActiveEffectiveBalance /= Gwei
-			participation.RegisteredEffectiveBalance /= Gwei
+			participation.Normalize()
 		}
 		if err := exportCSV(validatorParticipations, filepath.Join(dir, "by-validator.csv")); err != nil {
 			return fmt.Errorf("failed to export validator rewards: %w", err)
 		}
 		for _, participation := range ownerParticipations {
-			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-			participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
-			participation.ActiveEffectiveBalance /= Gwei
-			participation.RegisteredEffectiveBalance /= Gwei
+			participation.Normalize()
 		}
 		if err := exportCSV(ownerParticipations, filepath.Join(dir, "by-owner.csv")); err != nil {
 			return fmt.Errorf("failed to export owner rewards: %w", err)
 		}
 		for _, participation := range recipientParticipations {
-			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-			participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
-			participation.ActiveEffectiveBalance /= Gwei
-			participation.RegisteredEffectiveBalance /= Gwei
+			participation.Normalize()
 		}
 		if err := exportCSV(recipientParticipations, filepath.Join(dir, "by-recipient.csv")); err != nil {
 			return fmt.Errorf("failed to export recipient rewards: %w", err)
@@ -359,7 +349,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		logger.Info(
 			"Exported rewards for round",
 			zap.String("period", round.Period.String()),
-			zap.Int64("total_effective_balance", totalEffectiveBalanceGwei/1e9),
+			zap.Int64("total_effective_balance", totalEffectiveBalanceGwei/Gwei),
 			zap.Int64("tier", tier.MaxEffectiveBalance),
 			zap.String("network_fee", networkFee.String()),
 			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).String()),
@@ -379,28 +369,19 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
 	}
 	for _, participation := range totalByValidator {
-		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-		participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
-		participation.ActiveEffectiveBalance /= Gwei
-		participation.RegisteredEffectiveBalance /= Gwei
+		participation.Normalize()
 	}
 	if err := exportCSV(maps.Values(totalByValidator), filepath.Join(dir, "total-by-validator.csv")); err != nil {
 		return fmt.Errorf("failed to export total validator rewards: %w", err)
 	}
 	for _, participation := range totalByOwner {
-		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-		participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
-		participation.ActiveEffectiveBalance /= Gwei
-		participation.RegisteredEffectiveBalance /= Gwei
+		participation.Normalize()
 	}
 	if err := exportCSV(maps.Values(totalByOwner), filepath.Join(dir, "total-by-owner.csv")); err != nil {
 		return fmt.Errorf("failed to export total owner rewards: %w", err)
 	}
 	for _, participation := range totalByRecipient {
-		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-		participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
-		participation.ActiveEffectiveBalance /= Gwei
-		participation.RegisteredEffectiveBalance /= Gwei
+		participation.Normalize()
 	}
 	if err := exportCSV(maps.Values(totalByRecipient), filepath.Join(dir, "total-by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
@@ -485,6 +466,13 @@ type ValidatorParticipation struct {
 	reward                     *big.Int     `boil:"-"`
 }
 
+func (p *ValidatorParticipation) Normalize() {
+	p.Reward = precise.NewETH(nil).SetWei(p.reward)
+	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
+	p.ActiveEffectiveBalance /= Gwei
+	p.RegisteredEffectiveBalance /= Gwei
+}
+
 type ValidatorParticipationRound struct {
 	Round rewards.Period
 	*ValidatorParticipation
@@ -498,7 +486,7 @@ func (c *CalcCmd) validatorParticipations(
 ) ([]*ValidatorParticipation, error) {
 	var participations []*ValidatorParticipation
 	return participations, queries.Raw(
-		"SELECT * FROM active_days_by_validator($1, $2, $3, $4, $5, $6, $7)",
+		"SELECT * FROM participations_by_validator($1, $2, $3, $4, $5, $6, $7)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -523,6 +511,13 @@ type OwnerParticipation struct {
 	reward                     *big.Int     `boil:"-"`
 }
 
+func (p *OwnerParticipation) Normalize() {
+	p.Reward = precise.NewETH(nil).SetWei(p.reward)
+	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
+	p.ActiveEffectiveBalance /= Gwei
+	p.RegisteredEffectiveBalance /= Gwei
+}
+
 type OwnerParticipationRound struct {
 	Round rewards.Period
 	*OwnerParticipation
@@ -536,7 +531,7 @@ func (c *CalcCmd) ownerParticipations(
 ) ([]*OwnerParticipation, error) {
 	var participations []*OwnerParticipation
 	return participations, queries.Raw(
-		"SELECT * FROM active_days_by_owner($1, $2, $3, $4, $5, $6, $7)",
+		"SELECT * FROM participations_by_owner($1, $2, $3, $4, $5, $6, $7)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -560,6 +555,13 @@ type RecipientParticipation struct {
 	reward                     *big.Int     `boil:"-"`
 }
 
+func (p *RecipientParticipation) Normalize() {
+	p.Reward = precise.NewETH(nil).SetWei(p.reward)
+	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
+	p.ActiveEffectiveBalance /= Gwei
+	p.RegisteredEffectiveBalance /= Gwei
+}
+
 type RecipientParticipationRound struct {
 	Round rewards.Period
 	*RecipientParticipation
@@ -573,7 +575,7 @@ func (c *CalcCmd) recipientParticipations(
 ) ([]*RecipientParticipation, error) {
 	var participations []*RecipientParticipation
 	return participations, queries.Raw(
-		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7)",
+		"SELECT * FROM participations_by_recipient($1, $2, $3, $4, $5, $6, $7)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -744,7 +746,7 @@ func (c *CalcCmd) exclusionsForRound(
 	}
 
 	err = queries.Raw(
-		"SELECT * FROM inactive_days_by_validator($1, $2, $3, $4, $5)",
+		"SELECT * FROM participations_by_owner($1, $2, $3, $4, $5)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -788,21 +790,20 @@ func (c *CalcCmd) exclusions(
 }
 
 func exportCSV(data any, fileName string) error {
-	// Use tabs as separators.
-	gocsv.SetCSVWriter(func(out io.Writer) *gocsv.SafeCSVWriter {
-		w := csv.NewWriter(out)
-		w.Comma = '\t'
-		return gocsv.NewSafeCSVWriter(w)
-	})
-
 	f, err := os.Create(fileName)
 	if err != nil {
 		return fmt.Errorf("failed to create %q: %w", fileName, err)
 	}
 	defer f.Close()
-	if err := gocsv.Marshal(data, f); err != nil {
+
+	w := csv.NewWriter(f)
+	w.Comma = '\t' // Set tab delimiter locally
+
+	if err := gocsv.MarshalCSV(data, gocsv.NewSafeCSVWriter(w)); err != nil {
 		return fmt.Errorf("failed to marshal %q: %w", fileName, err)
 	}
+
+	w.Flush()
 	return nil
 }
 
