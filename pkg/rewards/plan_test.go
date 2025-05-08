@@ -48,6 +48,7 @@ rounds:
   - period: 2023-09
     eth_apr: 0.049
     ssv_eth: 0.0088235294
+    network_fee: 0.0001
   - period: 2023-10
     eth_apr: 
     ssv_eth: 
@@ -92,9 +93,10 @@ rounds:
 				SSVETH: mustParseETH("0.0088235294"),
 			},
 			{
-				Period: NewPeriod(2023, time.September),
-				ETHAPR: mustParseETH("0.049"),
-				SSVETH: mustParseETH("0.0088235294"),
+				Period:     NewPeriod(2023, time.September),
+				ETHAPR:     mustParseETH("0.049"),
+				SSVETH:     mustParseETH("0.0088235294"),
+				NetworkFee: mustParseETH("0.0001"),
 			},
 			{
 				Period: NewPeriod(2023, time.October),

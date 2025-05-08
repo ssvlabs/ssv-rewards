@@ -27,6 +27,7 @@ import (
 
 // BaseEffectiveBalanceGwei 32 ETH in Gwei (32 * 1e9 = 32_000_000_000)
 const BaseEffectiveBalanceGwei = 32_000_000_000
+const Gwei = int64(1e9)
 
 type CalcCmd struct {
 	Dir                 string `default:"./rewards" help:"Path to save the rewards to,"`
@@ -155,7 +156,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	var completeRounds []rewards.Round
 	for _, round := range c.plan.Rounds {
 		if round.NetworkFee == nil {
-			round.NetworkFee = big.NewInt(0)
+			round.NetworkFee = precise.NewETH(nil)
 		}
 		if round.ETHAPR.Float().Cmp(big.NewFloat(0)) == 1 &&
 			round.SSVETH.Float().Cmp(big.NewFloat(0)) == 1 &&
@@ -228,18 +229,18 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			return fmt.Errorf("failed to get reward: %w", err)
 		}
 
-		roundDays := int64(round.Period.Days())
+		roundDays := round.Period.Days()
 		networkFee := round.NetworkFee
 
 		// -- Validator rewards  --
 		for _, participation := range validatorParticipations {
-			participation.reward = c.calculateReward(
+			participation.reward, participation.feeDeduction = c.calculateReward(
 				participation.ActiveEffectiveBalance,
 				participation.RegisteredEffectiveBalance,
-				int64(participation.RegisteredDays),
+				participation.RegisteredDays,
 				roundDays,
 				dailyReward,
-				networkFee,
+				networkFee.Gwei(),
 			)
 
 			byValidator = append(byValidator, &ValidatorParticipationRound{
@@ -257,13 +258,13 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		// -- Owner rewards  --
 		for _, participation := range ownerParticipations {
-			participation.reward = c.calculateReward(
+			participation.reward, participation.feeDeduction = c.calculateReward(
 				participation.ActiveEffectiveBalance,
 				participation.RegisteredEffectiveBalance,
-				int64(participation.RegisteredDays),
+				participation.RegisteredDays,
 				roundDays,
 				dailyReward,
-				networkFee,
+				networkFee.Gwei(),
 			)
 
 			byOwner = append(byOwner, &OwnerParticipationRound{
@@ -283,13 +284,13 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		// -- Recipient rewards  --
 		for _, participation := range recipientParticipations {
-			participation.reward = c.calculateReward(
+			participation.reward, participation.feeDeduction = c.calculateReward(
 				participation.ActiveEffectiveBalance,
 				participation.RegisteredEffectiveBalance,
-				int64(participation.RegisteredDays),
+				participation.RegisteredDays,
 				roundDays,
 				dailyReward,
-				networkFee,
+				networkFee.Gwei(),
 			)
 
 			byRecipient = append(byRecipient, &RecipientParticipationRound{
@@ -313,18 +314,27 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 		for _, participation := range validatorParticipations {
 			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+			participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
+			participation.ActiveEffectiveBalance /= Gwei
+			participation.RegisteredEffectiveBalance /= Gwei
 		}
 		if err := exportCSV(validatorParticipations, filepath.Join(dir, "by-validator.csv")); err != nil {
 			return fmt.Errorf("failed to export validator rewards: %w", err)
 		}
 		for _, participation := range ownerParticipations {
 			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+			participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
+			participation.ActiveEffectiveBalance /= Gwei
+			participation.RegisteredEffectiveBalance /= Gwei
 		}
 		if err := exportCSV(ownerParticipations, filepath.Join(dir, "by-owner.csv")); err != nil {
 			return fmt.Errorf("failed to export owner rewards: %w", err)
 		}
 		for _, participation := range recipientParticipations {
 			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+			participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
+			participation.ActiveEffectiveBalance /= Gwei
+			participation.RegisteredEffectiveBalance /= Gwei
 		}
 		if err := exportCSV(recipientParticipations, filepath.Join(dir, "by-recipient.csv")); err != nil {
 			return fmt.Errorf("failed to export recipient rewards: %w", err)
@@ -351,6 +361,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			zap.String("period", round.Period.String()),
 			zap.Int64("total_effective_balance", totalEffectiveBalanceGwei/1e9),
 			zap.Int64("tier", tier.MaxEffectiveBalance),
+			zap.String("network_fee", networkFee.String()),
 			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).String()),
 			zap.String("monthly_reward", precise.NewETH(nil).SetWei(monthlyReward).String()),
 			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).String()),
@@ -369,18 +380,27 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	}
 	for _, participation := range totalByValidator {
 		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+		participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
+		participation.ActiveEffectiveBalance /= Gwei
+		participation.RegisteredEffectiveBalance /= Gwei
 	}
 	if err := exportCSV(maps.Values(totalByValidator), filepath.Join(dir, "total-by-validator.csv")); err != nil {
 		return fmt.Errorf("failed to export total validator rewards: %w", err)
 	}
 	for _, participation := range totalByOwner {
 		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+		participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
+		participation.ActiveEffectiveBalance /= Gwei
+		participation.RegisteredEffectiveBalance /= Gwei
 	}
 	if err := exportCSV(maps.Values(totalByOwner), filepath.Join(dir, "total-by-owner.csv")); err != nil {
 		return fmt.Errorf("failed to export total owner rewards: %w", err)
 	}
 	for _, participation := range totalByRecipient {
 		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
+		participation.FeeDeduction = precise.NewETH(nil).SetWei(participation.feeDeduction)
+		participation.ActiveEffectiveBalance /= Gwei
+		participation.RegisteredEffectiveBalance /= Gwei
 	}
 	if err := exportCSV(maps.Values(totalByRecipient), filepath.Join(dir, "total-by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
@@ -402,36 +422,53 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 }
 
 func (c *CalcCmd) calculateReward(
-	activeEB int64,
-	registeredEB int64,
-	registeredDays int64,
-	roundDays int64,
+	wActiveEBi int64,
+	wRegEBi int64,
+	registeredDaysI int,
+	roundDaysI int,
 	dailyReward *big.Int,
 	networkFee *big.Int,
-) *big.Int {
-	// Normalize to 32-ETH units
-	activeUnits := new(big.Int).Div(big.NewInt(activeEB), big.NewInt(BaseEffectiveBalanceGwei))
-	potentialReward := new(big.Int).Mul(dailyReward, activeUnits)
+) (*big.Int, *big.Int) {
+	registeredDays := big.NewInt(int64(registeredDaysI))
+	roundDays := big.NewInt(int64(roundDaysI))
+	rewardTier := new(big.Int).Mul(dailyReward, roundDays)
+	wActiveEB := big.NewInt(wActiveEBi)
+	wRegEB := big.NewInt(wRegEBi)
 
-	// Fee deduction part = (NF * registeredEB) / 32
-	feeDeductionPart := new(big.Int).Mul(networkFee, big.NewInt(registeredEB))
-	feeDeductionPart.Div(feeDeductionPart, big.NewInt(BaseEffectiveBalanceGwei))
+	// A = rewardTier * ∑wActiveEB
+	rewardTotal := new(big.Int).Mul(rewardTier, wActiveEB)
 
-	// Registered credit = (NF * registeredDays) / roundDays
-	registeredCredit := new(big.Int).Mul(networkFee, big.NewInt(registeredDays))
-	registeredCredit.Div(registeredCredit, big.NewInt(roundDays))
+	// B = networkFee * ∑wRegEB
+	feeTotal := new(big.Int).Mul(networkFee, wRegEB)
 
-	// Fee deduction = deduction part - credit
-	feeDeduction := new(big.Int).Sub(feeDeductionPart, registeredCredit)
+	// C = (networkFee * ∑registeredDays) / roundDays
+	feeCredit := new(big.Int).Mul(networkFee, registeredDays)
+	feeCredit.Div(feeCredit, roundDays)
 
-	// Deduct only the minimum of both
-	networkFeeDeducted := minBigInt(potentialReward, feeDeduction)
-	reward := new(big.Int).Sub(potentialReward, networkFeeDeducted)
+	// D = 32 * roundDays
+	unitBase := new(big.Int).Mul(big.NewInt(BaseEffectiveBalanceGwei), roundDays)
 
+	// Rᵢ = max((A - B) / D + C, 0)
+	reward := new(big.Int).Sub(rewardTotal, feeTotal)
+	reward.Div(reward, unitBase)
+	reward.Add(reward, feeCredit)
 	if reward.Sign() < 0 {
 		reward.SetInt64(0)
 	}
-	return reward
+
+	// Fᵣᵢ = min(A / D, B / D - C)
+	perReward := new(big.Int).Div(rewardTotal, unitBase)
+	perFee := new(big.Int).Div(feeTotal, unitBase)
+	perFee.Sub(perFee, feeCredit)
+
+	feeDeducted := new(big.Int)
+	if perReward.Cmp(perFee) <= 0 {
+		feeDeducted.Set(perReward)
+	} else {
+		feeDeducted.Set(perFee)
+	}
+
+	return reward, feeDeducted
 }
 
 type ValidatorParticipation struct {
@@ -442,6 +479,8 @@ type ValidatorParticipation struct {
 	RegisteredDays             int
 	ActiveEffectiveBalance     int64
 	RegisteredEffectiveBalance int64
+	FeeDeduction               *precise.ETH `boil:"-"`
+	feeDeduction               *big.Int     `boil:"-"`
 	Reward                     *precise.ETH `boil:"-"`
 	reward                     *big.Int     `boil:"-"`
 }
@@ -478,6 +517,8 @@ type OwnerParticipation struct {
 	RegisteredDays             int
 	ActiveEffectiveBalance     int64
 	RegisteredEffectiveBalance int64
+	FeeDeduction               *precise.ETH `boil:"-"`
+	feeDeduction               *big.Int     `boil:"-"`
 	Reward                     *precise.ETH `boil:"-"`
 	reward                     *big.Int     `boil:"-"`
 }
@@ -511,8 +552,10 @@ type RecipientParticipation struct {
 	Validators                 int
 	ActiveDays                 int
 	RegisteredDays             int
-	ActiveEffectiveBalance     int64
-	RegisteredEffectiveBalance int64
+	ActiveEffectiveBalance     int64        `csv:"wActiveEF"`
+	RegisteredEffectiveBalance int64        `csv:"wRegEF"`
+	FeeDeduction               *precise.ETH `boil:"-"`
+	feeDeduction               *big.Int     `boil:"-"`
 	Reward                     *precise.ETH `boil:"-"`
 	reward                     *big.Int     `boil:"-"`
 }
@@ -791,11 +834,4 @@ func exportRedirectsToCSV(redirects interface{}, fileName string) error {
 	}
 
 	return exportCSV(rows, fileName)
-}
-
-func minBigInt(a, b *big.Int) *big.Int {
-	if a.Cmp(b) <= 0 {
-		return new(big.Int).Set(a)
-	}
-	return new(big.Int).Set(b)
 }

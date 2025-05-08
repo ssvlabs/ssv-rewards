@@ -72,3 +72,4 @@ rounds:
   - period: 2023-10
     eth_apr: 0.049
     ssv_eth: 0.0092352941
+    network_fee: 0.1
