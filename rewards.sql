@@ -151,35 +151,46 @@ RETURNS TABLE (
     events TEXT,
     exclusion_reason TEXT
 ) AS $$
+DECLARE
+    _from_month DATE := date_trunc('month', from_period);
+    _to_month DATE := date_trunc('month', COALESCE(to_period, from_period));
 BEGIN
-    IF to_period IS NULL THEN
-        to_period := from_period;
-    END IF;
-
     RETURN QUERY
+    WITH vp_excluded AS (
+        SELECT
+            vp.day,
+            vp.from_epoch,
+            vp.to_epoch,
+            vp.owner_address,
+            vp.public_key,
+            vp.start_beacon_status,
+            vp.end_beacon_status,
+            CASE
+                WHEN NOT vp.solvent_whole_day THEN 'not_registered_whole_day'
+                WHEN vp.attestations_executed < min_attestations THEN 'not_enough_attestations'
+                WHEN vp.decideds < min_decideds THEN 'not_enough_decideds'
+                ELSE 'unknown'
+            END AS exclusion_reason
+        FROM validator_performances AS vp
+        WHERE provider = _provider
+          AND vp.day >= _from_month AND vp.day < (_to_month + INTERVAL '1 month')
+          AND (NOT solvent_whole_day OR attestations_executed < min_attestations OR decideds < min_decideds)
+    )
     SELECT
-    	vp.day,
-    	vp.from_epoch,
-    	vp.to_epoch,
-        vp.owner_address,
-        vp.public_key,
-        vp.start_beacon_status,
-        vp.end_beacon_status,
+    	v.day,
+    	v.from_epoch,
+    	v.to_epoch,
+        v.owner_address,
+        v.public_key,
+        v.start_beacon_status,
+        v.end_beacon_status,
         (
             SELECT string_agg(ve.event_name, ', ') -- Aggregates event names separated by commas
             FROM validator_events AS ve
-            WHERE ve.public_key = vp.public_key
-              AND (ve.slot/32) BETWEEN vp.from_epoch AND vp.to_epoch
+            WHERE ve.public_key = v.public_key
+              AND (ve.slot/32) BETWEEN v.from_epoch AND v.to_epoch
         ) AS events,
-        CASE
-            WHEN NOT vp.solvent_whole_day THEN 'not_registered_whole_day'
-            WHEN vp.attestations_executed < min_attestations THEN 'not_enough_attestations'
-            WHEN vp.decideds < min_decideds THEN 'not_enough_decideds'
-            ELSE 'unknown'
-        END AS exclusion_reason
-    FROM validator_performances AS vp
-    WHERE provider = _provider
-        AND date_trunc('month', vp.day) BETWEEN date_trunc('month', from_period) AND date_trunc('month', to_period)
-        AND (NOT solvent_whole_day OR attestations_executed < min_attestations OR decideds < min_decideds);
+        v.exclusion_reason
+    FROM vp_excluded AS v;
 END;
 $$ LANGUAGE plpgsql STABLE;
