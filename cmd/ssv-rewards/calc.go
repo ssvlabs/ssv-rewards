@@ -746,7 +746,7 @@ func (c *CalcCmd) exclusionsForRound(
 	}
 
 	err = queries.Raw(
-		"SELECT * FROM participations_by_owner($1, $2, $3, $4, $5)",
+		"SELECT * FROM exclusions_by_validator($1, $2, $3, $4, $5)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
