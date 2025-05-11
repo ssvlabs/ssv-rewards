@@ -133,7 +133,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-CREATE OR REPLACE FUNCTION participations_by_owner(
+CREATE OR REPLACE FUNCTION exclusions_by_validator(
     _provider provider_type,
     min_attestations INTEGER,
     min_decideds INTEGER,
