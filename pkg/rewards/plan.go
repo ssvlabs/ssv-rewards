@@ -56,7 +56,7 @@ func (p *Plan) validate() error {
 			return errors.New("missing tiers in mechanics")
 		}
 		if !sort.IsSorted(mechanics.Tiers) {
-			return errors.New("tiers are not sorted by max participants in mechanics")
+			return errors.New("tiers are not sorted by max effective balance in mechanics")
 		}
 		if mechanics.Tiers[0].MaxEffectiveBalance == 0 {
 			return errors.New("max effective balance must be positive in mechanics")

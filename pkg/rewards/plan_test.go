@@ -155,7 +155,7 @@ func TestPlan_Validate(t *testing.T) {
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}},
 			},
-			expectedErr: "tiers are not sorted by max participants in mechanics",
+			expectedErr: "tiers are not sorted by max effective balance in mechanics",
 		},
 		{
 			name: "duplicate tier",
@@ -171,7 +171,7 @@ func TestPlan_Validate(t *testing.T) {
 			expectedErr: "duplicate tier: 32 in mechanics",
 		},
 		{
-			name: "zero max participants",
+			name: "zero max effective balance",
 			plan: &Plan{
 				Mechanics: MechanicsList{
 					{
