@@ -306,25 +306,26 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			}
 		}
 
+		for _, p := range validatorParticipations {
+			p.Normalize()
+		}
+		for _, p := range ownerParticipations {
+			p.Normalize()
+		}
+		for _, p := range recipientParticipations {
+			p.Normalize()
+		}
+
 		// Export CSVs
 		dir := filepath.Join(dir, round.Period.String())
 		if err := os.Mkdir(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %q: %w", dir, err)
 		}
-		for _, participation := range validatorParticipations {
-			participation.Normalize()
-		}
 		if err := exportCSV(validatorParticipations, filepath.Join(dir, "by-validator.csv")); err != nil {
 			return fmt.Errorf("failed to export validator rewards: %w", err)
 		}
-		for _, participation := range ownerParticipations {
-			participation.Normalize()
-		}
 		if err := exportCSV(ownerParticipations, filepath.Join(dir, "by-owner.csv")); err != nil {
 			return fmt.Errorf("failed to export owner rewards: %w", err)
-		}
-		for _, participation := range recipientParticipations {
-			participation.Normalize()
 		}
 		if err := exportCSV(recipientParticipations, filepath.Join(dir, "by-recipient.csv")); err != nil {
 			return fmt.Errorf("failed to export recipient rewards: %w", err)
@@ -368,20 +369,11 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	if err := exportCSV(byRecipient, filepath.Join(dir, "by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
 	}
-	for _, participation := range totalByValidator {
-		participation.Normalize()
-	}
 	if err := exportCSV(maps.Values(totalByValidator), filepath.Join(dir, "total-by-validator.csv")); err != nil {
 		return fmt.Errorf("failed to export total validator rewards: %w", err)
 	}
-	for _, participation := range totalByOwner {
-		participation.Normalize()
-	}
 	if err := exportCSV(maps.Values(totalByOwner), filepath.Join(dir, "total-by-owner.csv")); err != nil {
 		return fmt.Errorf("failed to export total owner rewards: %w", err)
-	}
-	for _, participation := range totalByRecipient {
-		participation.Normalize()
 	}
 	if err := exportCSV(maps.Values(totalByRecipient), filepath.Join(dir, "total-by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
