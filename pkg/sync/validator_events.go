@@ -1,41 +1,37 @@
 package sync
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
-	"github.com/bloxapp/ssv/networkconfig"
-	registrystorage "github.com/bloxapp/ssv/registry/storage"
-	"golang.org/x/exp/maps"
-
 	eth2client "github.com/attestantio/go-eth2-client"
+	"github.com/attestantio/go-eth2-client/api"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/bloxapp/ssv-rewards/pkg/models"
-	"github.com/bloxapp/ssv-rewards/pkg/sync/etherscan"
-	"github.com/bloxapp/ssv-rewards/pkg/sync/gnosis"
 	spectypes "github.com/bloxapp/ssv-spec/types"
 	"github.com/bloxapp/ssv/eth/contract"
 	"github.com/bloxapp/ssv/eth/eventhandler"
 	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/bloxapp/ssv/eth/executionclient"
 	qbftstorage "github.com/bloxapp/ssv/ibft/storage"
+	"github.com/bloxapp/ssv/networkconfig"
 	operatorstorage "github.com/bloxapp/ssv/operator/storage"
+	ssvtypes "github.com/bloxapp/ssv/protocol/v2/types"
+	registrystorage "github.com/bloxapp/ssv/registry/storage"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sourcegraph/conc/pool"
 	"github.com/volatiletech/null/v8"
 	"github.com/volatiletech/sqlboiler/v4/boil"
 	"github.com/volatiletech/sqlboiler/v4/queries/qm"
 	"go.uber.org/zap"
+	"golang.org/x/exp/maps"
 
-	ssvtypes "github.com/bloxapp/ssv/protocol/v2/types"
+	"github.com/bloxapp/ssv-rewards/pkg/models"
 )
 
 func SyncValidatorEvents(
@@ -45,10 +41,7 @@ func SyncValidatorEvents(
 	eventParser *eventparser.EventParser,
 	nodeStorage operatorstorage.Storage,
 	db *sql.DB,
-	ethClient *ethclient.Client,
 	cl eth2client.Service,
-	etherscan *etherscan.Client,
-	gnosisClient *gnosis.Client,
 ) error {
 	// Fetch events from the database, organize into a channel of BlockLogs
 	// and process them using SSV's EventHandler.
@@ -109,7 +102,7 @@ func SyncValidatorEvents(
 	// Spawn handled event recorder.
 	eventTraces := make(chan eventhandler.EventTrace, 1024)
 	backgroundTasks.Go(func(ctx context.Context) (err error) {
-		if err := recordHandledEvents(ctx, logger, db, nodeStorage, ethClient, etherscan, gnosisClient, eventTraces); err != nil {
+		if err := recordHandledEvents(ctx, logger, db, nodeStorage, eventTraces); err != nil {
 			return fmt.Errorf("failed to record handled event: %w", err)
 		}
 		return nil
@@ -230,26 +223,27 @@ func SyncValidatorEvents(
 			knownValidators[pk] = false
 		}
 	}
-	beaconValidators, err := cl.(eth2client.ValidatorsProvider).ValidatorsByPubKey(
+	response, err := cl.(eth2client.ValidatorsProvider).Validators(
 		ctx,
-		"head",
-		maps.Keys(knownValidators),
+		&api.ValidatorsOpts{
+			State:   "head",
+			PubKeys: maps.Keys(knownValidators),
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get beacon validators: %w", err)
 	}
+
+	beaconValidatorsByPublicKey := make(map[phase0.BLSPubKey]*v1.Validator)
+	for _, v := range response.Data {
+		beaconValidatorsByPublicKey[v.Validator.PublicKey] = v
+	}
 	for pk, active := range knownValidators {
-		var beaconValidator *v1.Validator
-		for _, v := range beaconValidators {
-			if v.Validator.PublicKey == pk {
-				beaconValidator = v
-				break
-			}
-		}
 		validator := models.Validator{
 			PublicKey: hex.EncodeToString(pk[:]),
 			Active:    active,
 		}
+		beaconValidator := beaconValidatorsByPublicKey[pk]
 		if beaconValidator != nil {
 			validator.Index = null.IntFrom(int(beaconValidator.Index))
 			validator.BeaconStatus = null.StringFrom(beaconValidator.Status.String())
@@ -280,13 +274,9 @@ func recordHandledEvents(
 	logger *zap.Logger,
 	db *sql.DB,
 	nodeStorage operatorstorage.Storage,
-	ethClient *ethclient.Client,
-	etherscan *etherscan.Client,
-	gnosisClient *gnosis.Client,
 	eventTraces <-chan eventhandler.EventTrace,
 ) error {
 	recordedEvents := 0
-	codeAt := make(map[common.Address][]byte) // Cache for CodeAt calls.
 	defer func() {
 		// Read from eventTraces until it's closed to avoid clogging EventHandler.
 		go func() {
@@ -375,53 +365,6 @@ func recordHandledEvents(
 				shares := nodeStorage.Shares().List(nil, registrystorage.ByClusterID(clusterID))
 				for _, share := range shares {
 					pubKeys = append(pubKeys, hex.EncodeToString(share.ValidatorPubKey))
-				}
-			}
-
-			// Check if owner is a contract.
-			if _, ok := codeAt[ownerAddress]; !ok {
-				codeAt[ownerAddress], err = ethClient.CodeAt(ctx, ownerAddress, nil)
-				if err != nil {
-					return fmt.Errorf(
-						"failed to get code at address %q: %w",
-						ownerAddress.String(),
-						err,
-					)
-				}
-				if len(codeAt[ownerAddress]) > 0 {
-					contractCreations, err := etherscan.ContractCreation(
-						ctx,
-						[]common.Address{ownerAddress},
-					)
-					if err != nil {
-						return fmt.Errorf("failed to get contract creation: %w", err)
-					}
-					if !bytes.Equal(contractCreations[0].ContractAddress, ownerAddress.Bytes()) {
-						return fmt.Errorf("contract creation mismatch")
-					}
-					safe, err := gnosisClient.Safe(ctx, ownerAddress)
-					if err == gnosis.ErrNotFound {
-						safe = nil
-					} else if err != nil {
-						return fmt.Errorf("failed to get safe: %w", err)
-					}
-					deployer := models.Deployer{
-						OwnerAddress:    hex.EncodeToString(ownerAddress[:]),
-						DeployerAddress: hex.EncodeToString(contractCreations[0].ContractCreator),
-						GnosisSafe:      safe != nil,
-						TXHash:          hex.EncodeToString(contractCreations[0].TxHash),
-					}
-					err = deployer.Upsert(
-						ctx,
-						db,
-						true,
-						[]string{"owner_address"},
-						boil.Whitelist("deployer_address", "gnosis_safe", "tx_hash"),
-						boil.Infer(),
-					)
-					if err != nil {
-						return fmt.Errorf("failed to upsert deployer: %w", err)
-					}
 				}
 			}
 

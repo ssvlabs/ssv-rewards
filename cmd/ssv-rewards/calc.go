@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -24,6 +23,10 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/precise"
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 )
+
+// BaseEffectiveBalanceGwei 32 ETH in Gwei (32 * 1e9 = 32_000_000_000)
+const BaseEffectiveBalanceGwei = 32_000_000_000
+const Gwei = int64(1e9)
 
 type CalcCmd struct {
 	Dir                 string `default:"./rewards" help:"Path to save the rewards to,"`
@@ -133,7 +136,7 @@ func (c *CalcCmd) Run(
 }
 
 func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error {
-	// Verify that validator performance data is available.
+	// 1. Validate state
 	state, err := models.States().One(ctx, c.db)
 	if err != nil {
 		return fmt.Errorf("failed to get state: %w", err)
@@ -142,17 +145,18 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		return fmt.Errorf("validator performance data is not available")
 	}
 	if state.EarliestValidatorPerformance.Time.After(state.LatestValidatorPerformance.Time) {
-		return fmt.Errorf(
-			"invalid state: earliest validator performance is after latest validator performance",
-		)
+		return fmt.Errorf("invalid state: earliest validator performance is after latest validator performance")
 	}
 	if state.EarliestValidatorPerformance.Time.After(c.plan.Rounds[0].Period.FirstDay()) {
 		return fmt.Errorf("validator performance data is not available for the first round")
 	}
 
-	// Select the rounds with available performance data.
+	// 2. Filter complete rounds
 	var completeRounds []rewards.Round
 	for _, round := range c.plan.Rounds {
+		if round.NetworkFee == nil {
+			round.NetworkFee = precise.NewETH(nil)
+		}
 		if round.ETHAPR.Float().Cmp(big.NewFloat(0)) == 1 &&
 			round.SSVETH.Float().Cmp(big.NewFloat(0)) == 1 &&
 			round.Period.LastDay().Before(state.LatestValidatorPerformance.Time.AddDate(0, 0, 1)) {
@@ -163,49 +167,80 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		return fmt.Errorf("no rounds with available performance data")
 	}
 
-	// Calculate rewards.
-	var byValidator []*ValidatorParticipationRound
-	var byOwner []*OwnerParticipationRound
-	var byRecipient []*RecipientParticipationRound
-	var totalByValidator = map[string]*ValidatorParticipation{}
-	var totalByOwner = map[string]*OwnerParticipation{}
-	var totalByRecipient = map[string]*RecipientParticipation{}
+	// 3. Rewards by round
+	var (
+		byValidator      []*ValidatorParticipationRound
+		byOwner          []*OwnerParticipationRound
+		byRecipient      []*RecipientParticipationRound
+		totalByValidator = map[string]*ValidatorParticipation{}
+		totalByOwner     = map[string]*OwnerParticipation{}
+		totalByRecipient = map[string]*RecipientParticipation{}
+	)
+
 	for _, round := range completeRounds {
-		// Collect validator and owner participations.
-		validatorParticipations, err := c.validatorParticipations(ctx, round.Period)
+		mechanics, err := c.plan.Mechanics.At(round.Period)
+		if err != nil {
+			return fmt.Errorf("failed to get mechanics for period %s: %w", round.Period, err)
+		}
+
+		ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(
+			ctx,
+			mechanics,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to prepare redirections for period %s: %w", round.Period, err)
+		}
+
+		// Fetch participations
+		validatorParticipations, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		if err != nil {
 			return fmt.Errorf("failed to get validator participations: %w", err)
 		}
-		ownerParticipations, err := c.ownerParticipations(ctx, round.Period)
+		ownerParticipations, err := c.ownerParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		if err != nil {
 			return fmt.Errorf("failed to get owner participations: %w", err)
 		}
-		recipientParticipations, err := c.recipientParticipations(ctx, round.Period)
+		recipientParticipations, err := c.recipientParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		if err != nil {
 			return fmt.Errorf("failed to get recipient participations: %w", err)
 		}
 
 		// Calculate appropriate tier and rewards.
-		tier, err := c.plan.Tier(round.Period, len(validatorParticipations))
+		var totalEffectiveBalanceGwei int64
+		for _, v := range validatorParticipations {
+			// TODO can it happen?
+			if v.ActiveDays == 0 {
+				continue
+			}
+
+			totalEffectiveBalanceGwei += v.ActiveEffectiveBalance / int64(v.ActiveDays)
+		}
+
+		tier, err := c.plan.Tier(round.Period, totalEffectiveBalanceGwei)
 		if err != nil {
 			return fmt.Errorf("failed to get tier (period: %s): %w", round.Period, err)
 		}
 		dailyReward, monthlyReward, annualReward, err := c.plan.ValidatorRewards(
 			round.Period,
-			len(validatorParticipations),
+			totalEffectiveBalanceGwei,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to get reward: %w", err)
 		}
 
-		// Attach rewards to participations.
-		ownerActiveDays := map[string]int{}
+		roundDays := round.Period.Days()
+		networkFee := round.NetworkFee
+
+		// -- Validator rewards  --
 		for _, participation := range validatorParticipations {
-			// participation.Reward = dailyReward * float64(participation.ActiveDays)
-			participation.reward = new(
-				big.Int,
-			).Mul(dailyReward, big.NewInt(int64(participation.ActiveDays)))
-			ownerActiveDays[participation.OwnerAddress] += participation.ActiveDays
+			participation.reward, participation.feeDeduction = c.calculateReward(
+				participation.ActiveEffectiveBalance,
+				participation.RegisteredEffectiveBalance,
+				participation.RegisteredDays,
+				roundDays,
+				dailyReward,
+				networkFee.Gwei(),
+			)
 
 			byValidator = append(byValidator, &ValidatorParticipationRound{
 				Round:                  round.Period,
@@ -219,39 +254,49 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 				totalByValidator[participation.PublicKey] = &cpy
 			}
 		}
-		for _, participation := range ownerParticipations {
-			participation.reward = new(
-				big.Int,
-			).Mul(dailyReward, big.NewInt(int64(participation.ActiveDays)))
 
-			if participation.ActiveDays != ownerActiveDays[participation.OwnerAddress] {
-				return fmt.Errorf(
-					"inconsistent active days for owner %q",
-					participation.OwnerAddress,
-				)
-			}
+		// -- Owner rewards  --
+		for _, participation := range ownerParticipations {
+			participation.reward, participation.feeDeduction = c.calculateReward(
+				participation.ActiveEffectiveBalance,
+				participation.RegisteredEffectiveBalance,
+				participation.RegisteredDays,
+				roundDays,
+				dailyReward,
+				networkFee.Gwei(),
+			)
 
 			byOwner = append(byOwner, &OwnerParticipationRound{
 				Round:              round.Period,
 				OwnerParticipation: participation,
 			})
-			if total, ok := totalByOwner[participation.OwnerAddress]; ok {
+
+			key := participation.OwnerAddress
+			if total, ok := totalByOwner[key]; ok {
 				total.ActiveDays += participation.ActiveDays
 				total.reward = new(big.Int).Add(total.reward, participation.reward)
 			} else {
 				cpy := *participation
-				totalByOwner[participation.OwnerAddress] = &cpy
+				totalByOwner[key] = &cpy
 			}
 		}
+
+		// -- Recipient rewards  --
 		for _, participation := range recipientParticipations {
-			participation.reward = new(
-				big.Int,
-			).Mul(dailyReward, big.NewInt(int64(participation.ActiveDays)))
+			participation.reward, participation.feeDeduction = c.calculateReward(
+				participation.ActiveEffectiveBalance,
+				participation.RegisteredEffectiveBalance,
+				participation.RegisteredDays,
+				roundDays,
+				dailyReward,
+				networkFee.Gwei(),
+			)
 
 			byRecipient = append(byRecipient, &RecipientParticipationRound{
 				Round:                  round.Period,
 				RecipientParticipation: participation,
 			})
+
 			if total, ok := totalByRecipient[participation.RecipientAddress]; ok {
 				total.ActiveDays += participation.ActiveDays
 				total.reward = new(big.Int).Add(total.reward, participation.reward)
@@ -261,25 +306,26 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			}
 		}
 
-		// Export rewards.
+		for _, p := range validatorParticipations {
+			p.Normalize()
+		}
+		for _, p := range ownerParticipations {
+			p.Normalize()
+		}
+		for _, p := range recipientParticipations {
+			p.Normalize()
+		}
+
+		// Export CSVs
 		dir := filepath.Join(dir, round.Period.String())
 		if err := os.Mkdir(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %q: %w", dir, err)
 		}
-		for _, participation := range validatorParticipations {
-			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-		}
 		if err := exportCSV(validatorParticipations, filepath.Join(dir, "by-validator.csv")); err != nil {
 			return fmt.Errorf("failed to export validator rewards: %w", err)
 		}
-		for _, participation := range ownerParticipations {
-			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-		}
 		if err := exportCSV(ownerParticipations, filepath.Join(dir, "by-owner.csv")); err != nil {
 			return fmt.Errorf("failed to export owner rewards: %w", err)
-		}
-		for _, participation := range recipientParticipations {
-			participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
 		}
 		if err := exportCSV(recipientParticipations, filepath.Join(dir, "by-recipient.csv")); err != nil {
 			return fmt.Errorf("failed to export recipient rewards: %w", err)
@@ -304,8 +350,9 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		logger.Info(
 			"Exported rewards for round",
 			zap.String("period", round.Period.String()),
-			zap.Int("validators", len(validatorParticipations)),
-			zap.Int("tier", tier.MaxParticipants),
+			zap.Int64("total_effective_balance", totalEffectiveBalanceGwei/Gwei),
+			zap.Int64("tier", tier.MaxEffectiveBalance),
+			zap.String("network_fee", networkFee.String()),
 			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).String()),
 			zap.String("monthly_reward", precise.NewETH(nil).SetWei(monthlyReward).String()),
 			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).String()),
@@ -322,20 +369,11 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	if err := exportCSV(byRecipient, filepath.Join(dir, "by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
 	}
-	for _, participation := range totalByValidator {
-		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-	}
 	if err := exportCSV(maps.Values(totalByValidator), filepath.Join(dir, "total-by-validator.csv")); err != nil {
 		return fmt.Errorf("failed to export total validator rewards: %w", err)
 	}
-	for _, participation := range totalByOwner {
-		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
-	}
 	if err := exportCSV(maps.Values(totalByOwner), filepath.Join(dir, "total-by-owner.csv")); err != nil {
 		return fmt.Errorf("failed to export total owner rewards: %w", err)
-	}
-	for _, participation := range totalByRecipient {
-		participation.Reward = precise.NewETH(nil).SetWei(participation.reward)
 	}
 	if err := exportCSV(maps.Values(totalByRecipient), filepath.Join(dir, "total-by-recipient.csv")); err != nil {
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
@@ -344,8 +382,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	// Export exclusions.
 	exclusions, err := c.exclusions(
 		ctx,
-		completeRounds[0].Period,
-		completeRounds[len(completeRounds)-1].Period,
+		completeRounds,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get exclusions: %w", err)
@@ -357,13 +394,75 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	return nil
 }
 
+func (c *CalcCmd) calculateReward(
+	wActiveEBi int64,
+	wRegEBi int64,
+	registeredDaysI int,
+	roundDaysI int,
+	dailyReward *big.Int,
+	networkFee *big.Int,
+) (*big.Int, *big.Int) {
+	registeredDays := big.NewInt(int64(registeredDaysI))
+	roundDays := big.NewInt(int64(roundDaysI))
+	rewardTier := new(big.Int).Mul(dailyReward, roundDays)
+	wActiveEB := big.NewInt(wActiveEBi)
+	wRegEB := big.NewInt(wRegEBi)
+
+	// A = rewardTier * ∑wActiveEB
+	rewardTotal := new(big.Int).Mul(rewardTier, wActiveEB)
+
+	// B = networkFee * ∑wRegEB
+	feeTotal := new(big.Int).Mul(networkFee, wRegEB)
+
+	// C = (networkFee * ∑registeredDays) / roundDays
+	feeCredit := new(big.Int).Mul(networkFee, registeredDays)
+	feeCredit.Div(feeCredit, roundDays)
+
+	// D = 32 * roundDays
+	unitBase := new(big.Int).Mul(big.NewInt(BaseEffectiveBalanceGwei), roundDays)
+
+	// Rᵢ = max((A - B) / D + C, 0)
+	reward := new(big.Int).Sub(rewardTotal, feeTotal)
+	reward.Div(reward, unitBase)
+	reward.Add(reward, feeCredit)
+	if reward.Sign() < 0 {
+		reward.SetInt64(0)
+	}
+
+	// Fᵣᵢ = min(A / D, B / D - C)
+	perReward := new(big.Int).Div(rewardTotal, unitBase)
+	perFee := new(big.Int).Div(feeTotal, unitBase)
+	perFee.Sub(perFee, feeCredit)
+
+	feeDeducted := new(big.Int)
+	if perReward.Cmp(perFee) <= 0 {
+		feeDeducted.Set(perReward)
+	} else {
+		feeDeducted.Set(perFee)
+	}
+
+	return reward, feeDeducted
+}
+
 type ValidatorParticipation struct {
-	OwnerAddress     string
-	RecipientAddress string
-	PublicKey        string
-	ActiveDays       int
-	Reward           *precise.ETH `boil:"-"`
-	reward           *big.Int     `boil:"-"`
+	RecipientAddress           string
+	OwnerAddress               string
+	PublicKey                  string
+	ActiveDays                 int
+	RegisteredDays             int
+	ActiveEffectiveBalance     int64
+	RegisteredEffectiveBalance int64
+	FeeDeduction               *precise.ETH `boil:"-"`
+	feeDeduction               *big.Int     `boil:"-"`
+	Reward                     *precise.ETH `boil:"-"`
+	reward                     *big.Int     `boil:"-"`
+}
+
+func (p *ValidatorParticipation) Normalize() {
+	p.Reward = precise.NewETH(nil).SetWei(p.reward)
+	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
+	p.ActiveEffectiveBalance /= Gwei
+	p.RegisteredEffectiveBalance /= Gwei
 }
 
 type ValidatorParticipationRound struct {
@@ -374,29 +473,106 @@ type ValidatorParticipationRound struct {
 func (c *CalcCmd) validatorParticipations(
 	ctx context.Context,
 	period rewards.Period,
+	mechanics *rewards.Mechanics,
+	ownerRedirectsSupport, validatorRedirectsSupport bool,
 ) ([]*ValidatorParticipation, error) {
-	// Retrieve mechanics for the given period
-	mechanics, err := c.plan.Mechanics.At(period)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get mechanics for period %s: %w", period, err)
-	}
-
-	// Prepare redirections for the current mechanics
-	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(ctx, mechanics)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare redirections for period %s: %w", period, err)
-	}
-
 	var participations []*ValidatorParticipation
-	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
 	return participations, queries.Raw(
-		"SELECT * FROM active_days_by_validator($1, $2, $3, $4, $5, $6, $7, $8)",
+		"SELECT * FROM participations_by_validator($1, $2, $3, $4, $5, $6, $7)",
 		c.PerformanceProvider,
-		c.plan.Criteria.MinAttestationsPerDay,
-		c.plan.Criteria.MinDecidedsPerDay,
+		mechanics.Criteria.MinAttestationsPerDay,
+		mechanics.Criteria.MinDecidedsPerDay,
 		time.Time(period),
 		nil, // to_period can be nil for single-period queries
-		gnosisSafeSupport,
+		ownerRedirectsSupport,
+		validatorRedirectsSupport,
+	).Bind(ctx, c.db, &participations)
+}
+
+type OwnerParticipation struct {
+	OwnerAddress               string
+	RecipientAddress           string
+	Validators                 int
+	ActiveDays                 int
+	RegisteredDays             int
+	ActiveEffectiveBalance     int64
+	RegisteredEffectiveBalance int64
+	FeeDeduction               *precise.ETH `boil:"-"`
+	feeDeduction               *big.Int     `boil:"-"`
+	Reward                     *precise.ETH `boil:"-"`
+	reward                     *big.Int     `boil:"-"`
+}
+
+func (p *OwnerParticipation) Normalize() {
+	p.Reward = precise.NewETH(nil).SetWei(p.reward)
+	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
+	p.ActiveEffectiveBalance /= Gwei
+	p.RegisteredEffectiveBalance /= Gwei
+}
+
+type OwnerParticipationRound struct {
+	Round rewards.Period
+	*OwnerParticipation
+}
+
+func (c *CalcCmd) ownerParticipations(
+	ctx context.Context,
+	period rewards.Period,
+	mechanics *rewards.Mechanics,
+	ownerRedirectsSupport, validatorRedirectsSupport bool,
+) ([]*OwnerParticipation, error) {
+	var participations []*OwnerParticipation
+	return participations, queries.Raw(
+		"SELECT * FROM participations_by_owner($1, $2, $3, $4, $5, $6, $7)",
+		c.PerformanceProvider,
+		mechanics.Criteria.MinAttestationsPerDay,
+		mechanics.Criteria.MinDecidedsPerDay,
+		time.Time(period),
+		nil,
+		ownerRedirectsSupport,
+		validatorRedirectsSupport,
+	).Bind(ctx, c.db, &participations)
+}
+
+type RecipientParticipation struct {
+	RecipientAddress           string
+	Validators                 int
+	ActiveDays                 int
+	RegisteredDays             int
+	ActiveEffectiveBalance     int64        `csv:"wActiveEF"`
+	RegisteredEffectiveBalance int64        `csv:"wRegEF"`
+	FeeDeduction               *precise.ETH `boil:"-"`
+	feeDeduction               *big.Int     `boil:"-"`
+	Reward                     *precise.ETH `boil:"-"`
+	reward                     *big.Int     `boil:"-"`
+}
+
+func (p *RecipientParticipation) Normalize() {
+	p.Reward = precise.NewETH(nil).SetWei(p.reward)
+	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
+	p.ActiveEffectiveBalance /= Gwei
+	p.RegisteredEffectiveBalance /= Gwei
+}
+
+type RecipientParticipationRound struct {
+	Round rewards.Period
+	*RecipientParticipation
+}
+
+func (c *CalcCmd) recipientParticipations(
+	ctx context.Context,
+	period rewards.Period,
+	mechanics *rewards.Mechanics,
+	ownerRedirectsSupport, validatorRedirectsSupport bool,
+) ([]*RecipientParticipation, error) {
+	var participations []*RecipientParticipation
+	return participations, queries.Raw(
+		"SELECT * FROM participations_by_recipient($1, $2, $3, $4, $5, $6, $7)",
+		c.PerformanceProvider,
+		mechanics.Criteria.MinAttestationsPerDay,
+		mechanics.Criteria.MinDecidedsPerDay,
+		time.Time(period),
+		nil,
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
 	).Bind(ctx, c.db, &participations)
@@ -424,77 +600,6 @@ func (c *CalcCmd) prepareRedirections(
 
 	// Return whether redirects are supported
 	return ownerRedirectsSupport, validatorRedirectsSupport, nil
-}
-
-type OwnerParticipation struct {
-	OwnerAddress string
-	Validators   int
-	ActiveDays   int
-	Reward       *precise.ETH `boil:"-"`
-	reward       *big.Int     `boil:"-"`
-}
-
-type OwnerParticipationRound struct {
-	Round rewards.Period
-	*OwnerParticipation
-}
-
-func (c *CalcCmd) ownerParticipations(
-	ctx context.Context,
-	period rewards.Period,
-) ([]*OwnerParticipation, error) {
-	var rewards []*OwnerParticipation
-	return rewards, queries.Raw(
-		"SELECT * FROM active_days_by_owner($1, $2, $3, $4)",
-		c.PerformanceProvider,
-		c.plan.Criteria.MinAttestationsPerDay,
-		c.plan.Criteria.MinDecidedsPerDay,
-		time.Time(period),
-	).Bind(ctx, c.db, &rewards)
-}
-
-type RecipientParticipation struct {
-	RecipientAddress string
-	IsDeployer       bool
-	ActiveDays       int
-	Reward           *precise.ETH `boil:"-"`
-	reward           *big.Int     `boil:"-"`
-}
-
-type RecipientParticipationRound struct {
-	Round rewards.Period
-	*RecipientParticipation
-}
-
-func (c *CalcCmd) recipientParticipations(
-	ctx context.Context,
-	period rewards.Period,
-) ([]*RecipientParticipation, error) {
-	// Retrieve mechanics for the given period
-	mechanics, err := c.plan.Mechanics.At(period)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get mechanics: %w", err)
-	}
-
-	// Prepare redirections for the current mechanics
-	ownerRedirectsSupport, validatorRedirectsSupport, err := c.prepareRedirections(ctx, mechanics)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare redirections for period %s: %w", period, err)
-	}
-
-	var participations []*RecipientParticipation
-	gnosisSafeSupport := mechanics.Features.Enabled(rewards.FeatureGnosisSafe)
-	return participations, queries.Raw(
-		"SELECT * FROM active_days_by_recipient($1, $2, $3, $4, $5, $6, $7, $8)",
-		c.PerformanceProvider,
-		c.plan.Criteria.MinAttestationsPerDay,
-		c.plan.Criteria.MinDecidedsPerDay,
-		time.Time(period),
-		nil,
-		gnosisSafeSupport,
-		ownerRedirectsSupport,
-		validatorRedirectsSupport,
-	).Bind(ctx, c.db, &participations)
 }
 
 func (c *CalcCmd) populateOwnerRedirectsTable(
@@ -612,11 +717,15 @@ type Exclusion struct {
 	ExclusionReason   string
 }
 
-func (c *CalcCmd) exclusions(
+func (c *CalcCmd) exclusionsForRound(
 	ctx context.Context,
-	fromPeriod rewards.Period,
-	toPeriod rewards.Period,
+	period rewards.Period,
 ) ([]*Exclusion, error) {
+	mechanics, err := c.plan.Mechanics.At(period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mechanics for period %s: %w", period, err)
+	}
+
 	var rows []struct {
 		Day               time.Time
 		FromEpoch         phase0.Epoch
@@ -627,17 +736,19 @@ func (c *CalcCmd) exclusions(
 		Events            sql.NullString
 		ExclusionReason   string
 	}
-	err := queries.Raw(
-		"SELECT * FROM inactive_days_by_validator($1, $2, $3, $4, $5)",
+
+	err = queries.Raw(
+		"SELECT * FROM exclusions_by_validator($1, $2, $3, $4, $5)",
 		c.PerformanceProvider,
-		c.plan.Criteria.MinAttestationsPerDay,
-		c.plan.Criteria.MinDecidedsPerDay,
-		time.Time(fromPeriod),
-		time.Time(toPeriod),
+		mechanics.Criteria.MinAttestationsPerDay,
+		mechanics.Criteria.MinDecidedsPerDay,
+		time.Time(period),
+		time.Time(period),
 	).Bind(ctx, c.db, &rows)
 	if err != nil {
 		return nil, err
 	}
+
 	exclusions := make([]*Exclusion, len(rows))
 	for i, row := range rows {
 		exclusions[i] = &Exclusion{
@@ -654,22 +765,37 @@ func (c *CalcCmd) exclusions(
 	return exclusions, nil
 }
 
-func exportCSV(data any, fileName string) error {
-	// Use tabs as separators.
-	gocsv.SetCSVWriter(func(out io.Writer) *gocsv.SafeCSVWriter {
-		w := csv.NewWriter(out)
-		w.Comma = '\t'
-		return gocsv.NewSafeCSVWriter(w)
-	})
+func (c *CalcCmd) exclusions(
+	ctx context.Context,
+	rounds []rewards.Round,
+) ([]*Exclusion, error) {
+	var exclusions []*Exclusion
+	for _, round := range rounds {
+		e, err := c.exclusionsForRound(ctx, round.Period)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get exclusions for round %s: %w", round.Period, err)
+		}
+		exclusions = append(exclusions, e...)
+	}
 
+	return exclusions, nil
+}
+
+func exportCSV(data any, fileName string) error {
 	f, err := os.Create(fileName)
 	if err != nil {
 		return fmt.Errorf("failed to create %q: %w", fileName, err)
 	}
 	defer f.Close()
-	if err := gocsv.Marshal(data, f); err != nil {
+
+	w := csv.NewWriter(f)
+	w.Comma = '\t' // Set tab delimiter locally
+
+	if err := gocsv.MarshalCSV(data, gocsv.NewSafeCSVWriter(w)); err != nil {
 		return fmt.Errorf("failed to marshal %q: %w", fileName, err)
 	}
+
+	w.Flush()
 	return nil
 }
 

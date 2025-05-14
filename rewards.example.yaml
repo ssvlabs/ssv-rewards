@@ -1,48 +1,43 @@
 version: 2
 
-criteria:
-  min_attestations_per_day: 202
-  min_decideds_per_day: 22
-
 mechanics:
   - since: 2023-07
-    features:
+    criteria:
+      min_attestations_per_day: 202
+      min_decideds_per_day: 22
     tiers:
-    - max_participants: 2000
+    - max_effective_balance: 64000
       apr_boost: 0.5
-    - max_participants: 5000
+    - max_effective_balance: 160000
       apr_boost: 0.4
-    - max_participants: 10000
+    - max_effective_balance: 320000
       apr_boost: 0.3
-    - max_participants: 15000
+    - max_effective_balance: 480000
       apr_boost: 0.2
-    - max_participants: 30000
+    - max_effective_balance: 960000
       apr_boost: 0.1
 
   - since: 2023-09
-    features:
-      # Rewards are paid to the owner address, unless it's a contract, in which case
-      # they are paid to the deployer address. Enabling gnosis_safe rewards the owner
-      # address despite it being a contract, when the contract is a Gnosis Safe.
-      - gnosis_safe
+    criteria:
+      min_attestations_per_day: 202
+      min_decideds_per_day: 22
     tiers:
-    - max_participants: 2000
+    - max_effective_balance: 64000
       apr_boost: 0.05
-    - max_participants: 5000
+    - max_effective_balance: 160000
       apr_boost: 0.04
-    - max_participants: 10000
+    - max_effective_balance: 320000
       apr_boost: 0.03
-    - max_participants: 15000
+    - max_effective_balance: 480000
       apr_boost: 0.02
-    - max_participants: 30000
+    - max_effective_balance: 960000
       apr_boost: 0.01
-    # Redirect rewards to different addresses. The left-hand side is the owner address,
-    # and the right-hand side is the reward recipient address. Do not specify deployer
-    # addresses on the left-hand side, only owner addresses.
+    # Redirect rewards to different addresses.
+    # The left-hand side is the owner address, and the right-hand side is the reward recipient address.
     owner_redirects:
       "0x1234567890abcdef1234567890abcdef12345678": "0x1234567890abcdef1234567890abcdef12345678"
-    # Redirect rewards to different addresses by validator public key. The left-hand side is the validator public key,
-    # and the right-hand side is the reward recipient address.
+    # Redirect rewards to different addresses by validator public key.
+    # The left-hand side is the validator public key, and the right-hand side is the reward recipient address.
     validator_redirects:
       "0x1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234": "0x1234567890abcdef1234567890abcdef12345678"
 
@@ -77,3 +72,4 @@ rounds:
   - period: 2023-10
     eth_apr: 0.049
     ssv_eth: 0.0092352941
+    network_fee: 0.1

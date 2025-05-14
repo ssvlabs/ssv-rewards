@@ -52,14 +52,6 @@ CREATE TABLE IF NOT EXISTS validator_events (
 	UNIQUE (block_number, log_index, owner_address, public_key)
 );
 
-CREATE TABLE IF NOT EXISTS deployers (
-	owner_address TEXT NOT NULL,
-	deployer_address TEXT NOT NULL,
-	gnosis_safe BOOLEAN NOT NULL,
-	tx_hash TEXT NOT NULL,
-	PRIMARY KEY (owner_address)
-);
-
 CREATE TABLE IF NOT EXISTS owner_redirects (
 	from_address TEXT NOT NULL,
 	to_address TEXT NOT NULL,
@@ -89,11 +81,12 @@ CREATE TABLE IF NOT EXISTS validator_performances (
 	public_key TEXT NOT NULL REFERENCES validators(public_key),
 	solvent_whole_day BOOLEAN NOT NULL,
 	index INT,
+    end_effective_balance BIGINT,
 	start_beacon_status TEXT,
 	end_beacon_status TEXT,
 	decideds INT,
 
-	effectiveness REAL,
+    effectiveness REAL,
 	attestation_rate REAL,
 	attestations_assigned SMALLINT,
 	attestations_executed SMALLINT,
