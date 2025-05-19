@@ -162,7 +162,7 @@ After calculating the reward distribution, you may merkleize the rewards for a s
    npm i
    npx hardhat run scripts/merkle.ts
    ```
-3. The merkle tree is generated at `./merkle-generator/scripts/output-1.json`.
+3. The merkle tree is generated at `./merkle-generator/scripts/output_1.json`.
 
 ## Updating
 
