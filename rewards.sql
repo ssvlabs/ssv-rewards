@@ -25,7 +25,7 @@ BEGIN
         SELECT
             vp.owner_address,
             vp.public_key,
-            vp.end_effective_balance,
+            GREATEST(vp.end_effective_balance, 32000000000) AS end_effective_balance,
             COALESCE(
                 CASE WHEN validator_redirects_support THEN vr.to_address END,
                 CASE WHEN owner_redirects_support THEN owr.to_address END,
