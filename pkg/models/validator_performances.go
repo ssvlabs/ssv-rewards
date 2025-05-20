@@ -32,6 +32,7 @@ type ValidatorPerformance struct {
 	PublicKey             string       `boil:"public_key" json:"public_key" toml:"public_key" yaml:"public_key"`
 	SolventWholeDay       bool         `boil:"solvent_whole_day" json:"solvent_whole_day" toml:"solvent_whole_day" yaml:"solvent_whole_day"`
 	Index                 null.Int     `boil:"index" json:"index,omitempty" toml:"index" yaml:"index,omitempty"`
+	EndEffectiveBalance   null.Int64   `boil:"end_effective_balance" json:"end_effective_balance,omitempty" toml:"end_effective_balance" yaml:"end_effective_balance,omitempty"`
 	StartBeaconStatus     null.String  `boil:"start_beacon_status" json:"start_beacon_status,omitempty" toml:"start_beacon_status" yaml:"start_beacon_status,omitempty"`
 	EndBeaconStatus       null.String  `boil:"end_beacon_status" json:"end_beacon_status,omitempty" toml:"end_beacon_status" yaml:"end_beacon_status,omitempty"`
 	Decideds              null.Int     `boil:"decideds" json:"decideds,omitempty" toml:"decideds" yaml:"decideds,omitempty"`
@@ -46,7 +47,6 @@ type ValidatorPerformance struct {
 	SyncCommitteeAssigned null.Int16   `boil:"sync_committee_assigned" json:"sync_committee_assigned,omitempty" toml:"sync_committee_assigned" yaml:"sync_committee_assigned,omitempty"`
 	SyncCommitteeExecuted null.Int16   `boil:"sync_committee_executed" json:"sync_committee_executed,omitempty" toml:"sync_committee_executed" yaml:"sync_committee_executed,omitempty"`
 	SyncCommitteeMissed   null.Int16   `boil:"sync_committee_missed" json:"sync_committee_missed,omitempty" toml:"sync_committee_missed" yaml:"sync_committee_missed,omitempty"`
-	EndEffectiveBalance   int64        `boil:"end_effective_balance" json:"end_effective_balance" toml:"end_effective_balance" yaml:"end_effective_balance"`
 
 	R *validatorPerformanceR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L validatorPerformanceL  `boil:"-" json:"-" toml:"-" yaml:"-"`
@@ -61,6 +61,7 @@ var ValidatorPerformanceColumns = struct {
 	PublicKey             string
 	SolventWholeDay       string
 	Index                 string
+	EndEffectiveBalance   string
 	StartBeaconStatus     string
 	EndBeaconStatus       string
 	Decideds              string
@@ -75,7 +76,6 @@ var ValidatorPerformanceColumns = struct {
 	SyncCommitteeAssigned string
 	SyncCommitteeExecuted string
 	SyncCommitteeMissed   string
-	EndEffectiveBalance   string
 }{
 	Provider:              "provider",
 	Day:                   "day",
@@ -85,6 +85,7 @@ var ValidatorPerformanceColumns = struct {
 	PublicKey:             "public_key",
 	SolventWholeDay:       "solvent_whole_day",
 	Index:                 "index",
+	EndEffectiveBalance:   "end_effective_balance",
 	StartBeaconStatus:     "start_beacon_status",
 	EndBeaconStatus:       "end_beacon_status",
 	Decideds:              "decideds",
@@ -99,7 +100,6 @@ var ValidatorPerformanceColumns = struct {
 	SyncCommitteeAssigned: "sync_committee_assigned",
 	SyncCommitteeExecuted: "sync_committee_executed",
 	SyncCommitteeMissed:   "sync_committee_missed",
-	EndEffectiveBalance:   "end_effective_balance",
 }
 
 var ValidatorPerformanceTableColumns = struct {
@@ -111,6 +111,7 @@ var ValidatorPerformanceTableColumns = struct {
 	PublicKey             string
 	SolventWholeDay       string
 	Index                 string
+	EndEffectiveBalance   string
 	StartBeaconStatus     string
 	EndBeaconStatus       string
 	Decideds              string
@@ -125,7 +126,6 @@ var ValidatorPerformanceTableColumns = struct {
 	SyncCommitteeAssigned string
 	SyncCommitteeExecuted string
 	SyncCommitteeMissed   string
-	EndEffectiveBalance   string
 }{
 	Provider:              "validator_performances.provider",
 	Day:                   "validator_performances.day",
@@ -135,6 +135,7 @@ var ValidatorPerformanceTableColumns = struct {
 	PublicKey:             "validator_performances.public_key",
 	SolventWholeDay:       "validator_performances.solvent_whole_day",
 	Index:                 "validator_performances.index",
+	EndEffectiveBalance:   "validator_performances.end_effective_balance",
 	StartBeaconStatus:     "validator_performances.start_beacon_status",
 	EndBeaconStatus:       "validator_performances.end_beacon_status",
 	Decideds:              "validator_performances.decideds",
@@ -149,7 +150,6 @@ var ValidatorPerformanceTableColumns = struct {
 	SyncCommitteeAssigned: "validator_performances.sync_committee_assigned",
 	SyncCommitteeExecuted: "validator_performances.sync_committee_executed",
 	SyncCommitteeMissed:   "validator_performances.sync_committee_missed",
-	EndEffectiveBalance:   "validator_performances.end_effective_balance",
 }
 
 // Generated where
@@ -227,6 +227,44 @@ func (w whereHelpernull_Int) NIN(slice []int) qm.QueryMod {
 func (w whereHelpernull_Int) IsNull() qm.QueryMod    { return qmhelper.WhereIsNull(w.field) }
 func (w whereHelpernull_Int) IsNotNull() qm.QueryMod { return qmhelper.WhereIsNotNull(w.field) }
 
+type whereHelpernull_Int64 struct{ field string }
+
+func (w whereHelpernull_Int64) EQ(x null.Int64) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, false, x)
+}
+func (w whereHelpernull_Int64) NEQ(x null.Int64) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, true, x)
+}
+func (w whereHelpernull_Int64) LT(x null.Int64) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LT, x)
+}
+func (w whereHelpernull_Int64) LTE(x null.Int64) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LTE, x)
+}
+func (w whereHelpernull_Int64) GT(x null.Int64) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GT, x)
+}
+func (w whereHelpernull_Int64) GTE(x null.Int64) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GTE, x)
+}
+func (w whereHelpernull_Int64) IN(slice []int64) qm.QueryMod {
+	values := make([]interface{}, 0, len(slice))
+	for _, value := range slice {
+		values = append(values, value)
+	}
+	return qm.WhereIn(fmt.Sprintf("%s IN ?", w.field), values...)
+}
+func (w whereHelpernull_Int64) NIN(slice []int64) qm.QueryMod {
+	values := make([]interface{}, 0, len(slice))
+	for _, value := range slice {
+		values = append(values, value)
+	}
+	return qm.WhereNotIn(fmt.Sprintf("%s NOT IN ?", w.field), values...)
+}
+
+func (w whereHelpernull_Int64) IsNull() qm.QueryMod    { return qmhelper.WhereIsNull(w.field) }
+func (w whereHelpernull_Int64) IsNotNull() qm.QueryMod { return qmhelper.WhereIsNotNull(w.field) }
+
 type whereHelpernull_Float32 struct{ field string }
 
 func (w whereHelpernull_Float32) EQ(x null.Float32) qm.QueryMod {
@@ -303,29 +341,6 @@ func (w whereHelpernull_Int16) NIN(slice []int16) qm.QueryMod {
 func (w whereHelpernull_Int16) IsNull() qm.QueryMod    { return qmhelper.WhereIsNull(w.field) }
 func (w whereHelpernull_Int16) IsNotNull() qm.QueryMod { return qmhelper.WhereIsNotNull(w.field) }
 
-type whereHelperint64 struct{ field string }
-
-func (w whereHelperint64) EQ(x int64) qm.QueryMod  { return qmhelper.Where(w.field, qmhelper.EQ, x) }
-func (w whereHelperint64) NEQ(x int64) qm.QueryMod { return qmhelper.Where(w.field, qmhelper.NEQ, x) }
-func (w whereHelperint64) LT(x int64) qm.QueryMod  { return qmhelper.Where(w.field, qmhelper.LT, x) }
-func (w whereHelperint64) LTE(x int64) qm.QueryMod { return qmhelper.Where(w.field, qmhelper.LTE, x) }
-func (w whereHelperint64) GT(x int64) qm.QueryMod  { return qmhelper.Where(w.field, qmhelper.GT, x) }
-func (w whereHelperint64) GTE(x int64) qm.QueryMod { return qmhelper.Where(w.field, qmhelper.GTE, x) }
-func (w whereHelperint64) IN(slice []int64) qm.QueryMod {
-	values := make([]interface{}, 0, len(slice))
-	for _, value := range slice {
-		values = append(values, value)
-	}
-	return qm.WhereIn(fmt.Sprintf("%s IN ?", w.field), values...)
-}
-func (w whereHelperint64) NIN(slice []int64) qm.QueryMod {
-	values := make([]interface{}, 0, len(slice))
-	for _, value := range slice {
-		values = append(values, value)
-	}
-	return qm.WhereNotIn(fmt.Sprintf("%s NOT IN ?", w.field), values...)
-}
-
 var ValidatorPerformanceWhere = struct {
 	Provider              whereHelperProviderType
 	Day                   whereHelpertime_Time
@@ -335,6 +350,7 @@ var ValidatorPerformanceWhere = struct {
 	PublicKey             whereHelperstring
 	SolventWholeDay       whereHelperbool
 	Index                 whereHelpernull_Int
+	EndEffectiveBalance   whereHelpernull_Int64
 	StartBeaconStatus     whereHelpernull_String
 	EndBeaconStatus       whereHelpernull_String
 	Decideds              whereHelpernull_Int
@@ -349,7 +365,6 @@ var ValidatorPerformanceWhere = struct {
 	SyncCommitteeAssigned whereHelpernull_Int16
 	SyncCommitteeExecuted whereHelpernull_Int16
 	SyncCommitteeMissed   whereHelpernull_Int16
-	EndEffectiveBalance   whereHelperint64
 }{
 	Provider:              whereHelperProviderType{field: "\"validator_performances\".\"provider\""},
 	Day:                   whereHelpertime_Time{field: "\"validator_performances\".\"day\""},
@@ -359,6 +374,7 @@ var ValidatorPerformanceWhere = struct {
 	PublicKey:             whereHelperstring{field: "\"validator_performances\".\"public_key\""},
 	SolventWholeDay:       whereHelperbool{field: "\"validator_performances\".\"solvent_whole_day\""},
 	Index:                 whereHelpernull_Int{field: "\"validator_performances\".\"index\""},
+	EndEffectiveBalance:   whereHelpernull_Int64{field: "\"validator_performances\".\"end_effective_balance\""},
 	StartBeaconStatus:     whereHelpernull_String{field: "\"validator_performances\".\"start_beacon_status\""},
 	EndBeaconStatus:       whereHelpernull_String{field: "\"validator_performances\".\"end_beacon_status\""},
 	Decideds:              whereHelpernull_Int{field: "\"validator_performances\".\"decideds\""},
@@ -373,7 +389,6 @@ var ValidatorPerformanceWhere = struct {
 	SyncCommitteeAssigned: whereHelpernull_Int16{field: "\"validator_performances\".\"sync_committee_assigned\""},
 	SyncCommitteeExecuted: whereHelpernull_Int16{field: "\"validator_performances\".\"sync_committee_executed\""},
 	SyncCommitteeMissed:   whereHelpernull_Int16{field: "\"validator_performances\".\"sync_committee_missed\""},
-	EndEffectiveBalance:   whereHelperint64{field: "\"validator_performances\".\"end_effective_balance\""},
 }
 
 // ValidatorPerformanceRels is where relationship names are stored.
@@ -404,9 +419,9 @@ func (r *validatorPerformanceR) GetPublicKeyValidator() *Validator {
 type validatorPerformanceL struct{}
 
 var (
-	validatorPerformanceAllColumns            = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "solvent_whole_day", "index", "start_beacon_status", "end_beacon_status", "decideds", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed", "end_effective_balance"}
+	validatorPerformanceAllColumns            = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "solvent_whole_day", "index", "end_effective_balance", "start_beacon_status", "end_beacon_status", "decideds", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed"}
 	validatorPerformanceColumnsWithoutDefault = []string{"provider", "day", "from_epoch", "to_epoch", "owner_address", "public_key", "solvent_whole_day"}
-	validatorPerformanceColumnsWithDefault    = []string{"index", "start_beacon_status", "end_beacon_status", "decideds", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed", "end_effective_balance"}
+	validatorPerformanceColumnsWithDefault    = []string{"index", "end_effective_balance", "start_beacon_status", "end_beacon_status", "decideds", "effectiveness", "attestation_rate", "attestations_assigned", "attestations_executed", "attestations_missed", "proposals_assigned", "proposals_executed", "proposals_missed", "sync_committee_assigned", "sync_committee_executed", "sync_committee_missed"}
 	validatorPerformancePrimaryKeyColumns     = []string{"provider", "day", "public_key"}
 	validatorPerformanceGeneratedColumns      = []string{}
 )
