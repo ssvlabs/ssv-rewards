@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	eth2client "github.com/attestantio/go-eth2-client"
-	"github.com/attestantio/go-eth2-client/api"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	spectypes "github.com/bloxapp/ssv-spec/types"
@@ -223,27 +222,26 @@ func SyncValidatorEvents(
 			knownValidators[pk] = false
 		}
 	}
-	response, err := cl.(eth2client.ValidatorsProvider).Validators(
+	beaconValidators, err := cl.(eth2client.ValidatorsProvider).ValidatorsByPubKey(
 		ctx,
-		&api.ValidatorsOpts{
-			State:   "head",
-			PubKeys: maps.Keys(knownValidators),
-		},
+		"head",
+		maps.Keys(knownValidators),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get beacon validators: %w", err)
 	}
-
-	beaconValidatorsByPublicKey := make(map[phase0.BLSPubKey]*v1.Validator)
-	for _, v := range response.Data {
-		beaconValidatorsByPublicKey[v.Validator.PublicKey] = v
-	}
 	for pk, active := range knownValidators {
+		var beaconValidator *v1.Validator
+		for _, v := range beaconValidators {
+			if v.Validator.PublicKey == pk {
+				beaconValidator = v
+				break
+			}
+		}
 		validator := models.Validator{
 			PublicKey: hex.EncodeToString(pk[:]),
 			Active:    active,
 		}
-		beaconValidator := beaconValidatorsByPublicKey[pk]
 		if beaconValidator != nil {
 			validator.Index = null.IntFrom(int(beaconValidator.Index))
 			validator.BeaconStatus = null.StringFrom(beaconValidator.Status.String())

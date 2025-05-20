@@ -234,22 +234,13 @@ func (c *SyncCmd) Run(
 	case c.E2MEndpoint != "":
 		performanceProvider = e2m.New(c.E2MEndpoint)
 	case c.BeaconchaEndpoint != "":
-		performanceProvider, err = beaconcha.New(
+		performanceProvider = beaconcha.New(
 			c.BeaconchaEndpoint,
 			c.BeaconchaAPIKey,
 			float64(c.BeaconchaRequestsPerMinute)*0.666, // Safety margin.
-			filepath.Join(dataDir, ".cache", "beaconcha"),
 		)
-		if err != nil {
-			return fmt.Errorf("failed to create beaconcha client: %w", err)
-		}
 	default:
 		return fmt.Errorf("either e2m-endpoint or beaconcha-endpoint must be provided")
-	}
-
-	ssvCacheDir := filepath.Join(dataDir, ".cache", "ssv")
-	if err := os.MkdirAll(ssvCacheDir, 0755); err != nil {
-		return fmt.Errorf("failed to create SSV cache directory: %w", err)
 	}
 	err = sync.SyncValidatorPerformance(
 		ctx,
@@ -262,7 +253,6 @@ func (c *SyncCmd) Run(
 		plan.Rounds[0].Period.FirstDay(),
 		plan.Rounds[len(plan.Rounds)-1].Period.LastDay(),
 		toBlock,
-		filepath.Join(dataDir, ".cache", "ssv"),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to sync validator performance: %w", err)

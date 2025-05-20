@@ -4,12 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -42,7 +39,6 @@ func SyncValidatorPerformance(
 	fromDay time.Time,
 	toDay time.Time,
 	highestBlockNumber uint64,
-	cacheDir string,
 ) error {
 	providerType := models.ProviderType(provider.Type())
 	if err := providerType.IsValid(); err != nil {
@@ -62,22 +58,12 @@ func SyncValidatorPerformance(
 		return fmt.Errorf("failed to get validator events: %w", err)
 	}
 
-	existingDays := make(map[time.Time]bool)
-	rows, err := models.ValidatorPerformances(
-		models.ValidatorPerformanceWhere.Provider.EQ(providerType),
-	).All(ctx, db)
-	if err != nil {
-		return fmt.Errorf("failed to load existing validator performance days: %w", err)
-	}
-	for _, row := range rows {
-		existingDays[row.Day.UTC().Truncate(24*time.Hour)] = true
-	}
-
 	// Don't undershoot the earliest block with validator activity.
 	var earliestActiveDay time.Time
 	for _, event := range validatorEvents {
 		if event.EventName == eventparser.ValidatorAdded {
-			block, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(uint64(event.BlockNumber)))
+			block, err := ethClient.
+				BlockByNumber(ctx, new(big.Int).SetUint64(uint64(event.BlockNumber)))
 			if err != nil {
 				return fmt.Errorf("failed to get earliest block time: %w", err)
 			}
@@ -131,6 +117,8 @@ func SyncValidatorPerformance(
 		Since        phase0.Epoch
 		OwnerAddress string
 	}
+	activeValidators := map[phase0.BLSPubKey]activeValidator{}
+	validatorEventsPos := 0
 
 	// Get validators known in the Beacon chain.
 	beaconValidators, err := models.Validators(
@@ -148,60 +136,14 @@ func SyncValidatorPerformance(
 		validatorsByPubKey[pk] = validator
 	}
 
-	activeByDay := make(map[time.Time]map[phase0.BLSPubKey]activeValidator)
-	current := make(map[phase0.BLSPubKey]activeValidator)
-	var lastSnapshotDay time.Time
-
-	for _, event := range validatorEvents {
-		eventDay := event.BlockTime.UTC().Truncate(24 * time.Hour)
-		pk, err := decodeValidatorPublicKey(event.PublicKey)
-		if err != nil {
-			return fmt.Errorf("failed to decode validator public key: %w", err)
-		}
-
-		switch event.EventName {
-		case eventparser.ValidatorAdded:
-			current[pk] = activeValidator{
-				Since:        spec.EpochAt(phase0.Slot(event.Slot)),
-				OwnerAddress: event.OwnerAddress,
-			}
-		case eventparser.ValidatorRemoved:
-			delete(current, pk)
-		case eventparser.ClusterLiquidated, eventparser.ClusterReactivated:
-			continue
-		default:
-			return fmt.Errorf("unexpected validator event: %s", event.EventName)
-		}
-
-		// Only snapshot once per day
-		if eventDay != lastSnapshotDay {
-			snapshot := make(map[phase0.BLSPubKey]activeValidator, len(current))
-			for k, v := range current {
-				snapshot[k] = v
-			}
-			activeByDay[eventDay] = snapshot
-			lastSnapshotDay = eventDay
-		}
-	}
-
-	var (
-		inMemorySSVCache   = make(map[string]*ssvCacheItem)
-		inMemorySSVCacheMu sync.Mutex
-	)
-
-	for day := fromDay; !day.After(toDay); day = day.AddDate(0, 0, 1) {
-		if existingDays[day.UTC().Truncate(24*time.Hour)] {
-			bar.Add(1)
-			continue
-		}
-
+	for day := fromDay; day.Before(toDay) || day.Equal(toDay); day = day.AddDate(0, 0, 1) {
 		bar.Describe(day.Format("2006-01-02"))
 		totalDays++
 
 		// Determine the epoch range for the day.
 		beaconDay := beaconDay(spec, day.Year(), day.Month(), day.Day())
-		fromEpoch := spec.EpochAt(spec.SlotAt(beaconDay))
-		toEpoch := spec.EpochAt(spec.SlotAt(beaconDay.AddDate(0, 0, 1))) - 1
+		fromEpoch := phase0.Epoch(spec.EpochAt(spec.SlotAt(beaconDay)))
+		toEpoch := phase0.Epoch(spec.EpochAt(spec.SlotAt(beaconDay.AddDate(0, 0, 1))) - 1)
 		logger := logger.With(
 			zap.String("day", day.Format("2006-01-02")),
 			zap.Time("beacon_day", beaconDay),
@@ -215,84 +157,81 @@ func SyncValidatorPerformance(
 			return errors.New("epoch range is not exactly a day")
 		}
 
-		activeValidators := activeByDay[day.UTC().Truncate(24*time.Hour)]
-
-		var decideds map[string]int
-		dayKey := day.Format("2006-01-02")
-
-		dutyCountsStart := time.Now()
-
-		// Check memory cache first (no time check needed)
-		inMemorySSVCacheMu.Lock()
-		memItem, found := inMemorySSVCache[dayKey]
-		inMemorySSVCacheMu.Unlock()
-
-		if found {
-			logger.Info("Using SSV data from memory cache", zap.String("day", dayKey))
-			decideds = make(map[string]int, len(memItem.Validators))
-			for k, v := range memItem.Validators {
-				decideds[k] = v
+		// Keep track of active validators in this day.
+		for i, event := range validatorEvents[validatorEventsPos:] {
+			validatorEventsPos = i
+			if phase0.Slot(event.Slot) > spec.LastSlot(toEpoch) {
+				break
 			}
-		} else {
-			// Check file cache
-			cachedItem, err := loadSSVCache(cacheDir, dayKey)
-			if err == nil && cachedItem.Time.After(day.Add(48*time.Hour)) {
-				logger.Info("Using SSV data from file cache", zap.String("day", dayKey))
-				decideds = make(map[string]int, len(cachedItem.Validators))
-
-				inMemorySSVCacheMu.Lock()
-				inMemorySSVCache[dayKey] = cachedItem // Populate memory cache
-				inMemorySSVCacheMu.Unlock()
-
-				for k, v := range cachedItem.Validators {
-					decideds[k] = v
+			pk, err := decodeValidatorPublicKey(event.PublicKey)
+			if err != nil {
+				return fmt.Errorf("failed to decode validator public key: %w", err)
+			}
+			epoch := spec.EpochAt(phase0.Slot(event.Slot))
+			switch event.EventName {
+			case eventparser.ValidatorAdded:
+				activeValidators[pk] = activeValidator{
+					Since:        epoch,
+					OwnerAddress: event.OwnerAddress,
 				}
-			} else {
-				// Fetch fresh
-				logger.Info("Fetching fresh SSV data", zap.String("day", dayKey))
-
-				var resp struct {
-					Error      string
-					Validators map[string]struct{ Duties int }
-				}
-				url := ssvAPIEndpoint
-				if url[len(url)-1] != '/' {
-					url += "/"
-				}
-				err := requests.URL(url).
-					Client(httpretry.Client).
-					Pathf("%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
-					ToJSON(&resp).
-					Fetch(ctx)
-				if err != nil {
-					return fmt.Errorf("failed to get validator duties: %w", err)
-				}
-				if resp.Error != "" {
-					return fmt.Errorf("ssv api returned error: %s", resp.Error)
-				}
-
-				decideds = make(map[string]int, len(resp.Validators))
-				for pubKey, data := range resp.Validators {
-					decideds[pubKey] = data.Duties
-				}
-
-				newItem := &ssvCacheItem{
-					Time:       time.Now(),
-					Validators: decideds,
-				}
-
-				inMemorySSVCacheMu.Lock()
-				inMemorySSVCache[dayKey] = newItem
-				inMemorySSVCacheMu.Unlock()
-
-				if err := saveSSVCache(cacheDir, dayKey, *newItem); err != nil {
-					logger.Warn("Failed to save SSV cache", zap.Error(err))
-				}
+			case eventparser.ValidatorRemoved:
+				delete(activeValidators, pk)
+			case eventparser.ClusterLiquidated, eventparser.ClusterReactivated:
+				// Ignore.
+			default:
+				return fmt.Errorf("unexpected validator event: %s", event.EventName)
 			}
 		}
-		dutyCountsDuration := time.Since(dutyCountsStart)
 
-		beaconchaStart := time.Now()
+		// Skip if already fetched.
+		existing, err := models.ValidatorPerformances(
+			models.ValidatorPerformanceWhere.Provider.EQ(providerType),
+			models.ValidatorPerformanceWhere.Day.EQ(day),
+		).One(ctx, db)
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to get validator performance: %w", err)
+			}
+		} else {
+			if existing.FromEpoch != int(fromEpoch) || existing.ToEpoch != int(toEpoch) {
+				return fmt.Errorf("validator performance mismatch: %d-%d != %d-%d", existing.FromEpoch, existing.ToEpoch, fromEpoch, toEpoch)
+			}
+			bar.Add(1)
+			continue
+		}
+
+		// Insert ValidatorPerformance records.
+		start := time.Now()
+		dutyCountsPool := pool.New().WithContext(ctx).WithCancelOnError().WithFirstError()
+		decideds := map[string]int{}
+		dutyCountsPool.Go(func(ctx context.Context) error {
+			var resp struct {
+				Error      string
+				Validators map[string]struct {
+					Duties int
+				}
+			}
+			url := ssvAPIEndpoint
+			if url[len(url)-1] != '/' {
+				url += "/"
+			}
+			err := requests.URL(url).
+				Client(httpretry.Client).
+				Pathf("%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
+				ToJSON(&resp).
+				Fetch(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get validator duties: %w", err)
+			}
+			if resp.Error != "" {
+				return fmt.Errorf("failed to get validator duties: %s", resp.Error)
+			}
+			for pubKey, data := range resp.Validators {
+				decideds[pubKey] = data.Duties
+			}
+			return nil
+		})
+
 		performancesPool := pool.New().WithContext(ctx).WithCancelOnError().WithFirstError().WithMaxGoroutines(4)
 		var performances []*models.ValidatorPerformance
 		var performancesMutex sync.Mutex
@@ -324,23 +263,15 @@ func SyncValidatorPerformance(
 					}
 					startState := v1.ValidatorToState(
 						phase0Validator,
-						&phase0Validator.EffectiveBalance,
 						fromEpoch,
 						spec.FarFutureEpoch,
 					)
-					endState := v1.ValidatorToState(
-						phase0Validator,
-						&phase0Validator.EffectiveBalance,
-						toEpoch,
-						spec.FarFutureEpoch,
-					)
+					endState := v1.ValidatorToState(phase0Validator, toEpoch, spec.FarFutureEpoch)
 					performance.StartBeaconStatus = null.StringFrom(startState.String())
 					performance.EndBeaconStatus = null.StringFrom(endState.String())
 
-					// Measure beaconcha API duration
 					data, err := provider.ValidatorPerformance(
 						ctx,
-						logger,
 						spec,
 						day,
 						fromEpoch,
@@ -352,26 +283,33 @@ func SyncValidatorPerformance(
 					if err != nil {
 						return fmt.Errorf("failed to get validator performance: %w", err)
 					}
-
 					if data != nil {
-						performance.EndEffectiveBalance = null.Int64From(data.EndEffectiveBalance)
+						performance.EndEffectiveBalance = data.EndEffectiveBalance
 						performance.Effectiveness = null.Float32FromPtr(data.Effectiveness)
 						performance.AttestationRate = null.Float32From(data.AttestationRate)
 						performance.ProposalsAssigned = null.Int16From(data.Proposals.Assigned)
 						performance.ProposalsExecuted = null.Int16From(data.Proposals.Executed)
 						performance.ProposalsMissed = null.Int16From(data.Proposals.Missed)
-						performance.AttestationsAssigned = null.Int16From(data.Attestations.Assigned)
-						performance.AttestationsExecuted = null.Int16From(data.Attestations.Executed)
+						performance.AttestationsAssigned = null.Int16From(
+							data.Attestations.Assigned,
+						)
+						performance.AttestationsExecuted = null.Int16From(
+							data.Attestations.Executed,
+						)
 						performance.AttestationsMissed = null.Int16From(data.Attestations.Missed)
-						performance.SyncCommitteeAssigned = null.Int16From(data.SyncCommittee.Assigned)
-						performance.SyncCommitteeExecuted = null.Int16From(data.SyncCommittee.Executed)
+						performance.SyncCommitteeAssigned = null.Int16From(
+							data.SyncCommittee.Assigned,
+						)
+						performance.SyncCommitteeExecuted = null.Int16From(
+							data.SyncCommittee.Executed,
+						)
 						performance.SyncCommitteeMissed = null.Int16From(data.SyncCommittee.Missed)
 					} else {
 						if startState.IsAttesting() || endState.IsAttesting() {
 							logger.Warn(
 								"missing validator performance",
 								zap.String("public_key", hex.EncodeToString(pubKey[:])),
-								zap.Int("index", validator.Index.Int),
+								zap.Int("index", int(validator.Index.Int)),
 							)
 						}
 					}
@@ -383,59 +321,52 @@ func SyncValidatorPerformance(
 			})
 		}
 
-		// Wait for all performances to complete
+		// Wait for tasks to complete.
+		if err := dutyCountsPool.Wait(); err != nil {
+			return fmt.Errorf("failed waiting for duty counts: %w", err)
+		}
+		dutyCountsDuration := time.Since(start)
 		if err := performancesPool.Wait(); err != nil {
 			return fmt.Errorf("failed waiting for validator performance: %w", err)
 		}
 
-		beaconchaDuration := time.Since(beaconchaStart)
-
 		// Insert ValidatorPerformance records.
-		insertStart := time.Now()
+		start = time.Now()
 		tx, err := db.Begin()
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
 		defer tx.Rollback()
-
 		for _, performance := range performances {
 			if decideds, ok := decideds[performance.PublicKey]; ok {
 				performance.Decideds = null.IntFrom(decideds)
 			}
 
 			if err := performance.Insert(ctx, tx, boil.Infer()); err != nil {
-				logger.Error("failed to insert validator performance",
-					zap.String("public_key", performance.PublicKey),
-					zap.Time("day", performance.Day),
-					zap.Int64("end_effective_balance", performance.EndEffectiveBalance.Int64),
-					zap.Any("performance", performance),
-					zap.Error(err),
-				)
 				return fmt.Errorf("failed to insert validator performance for %s at %s: %w", performance.PublicKey, performance.Day, err)
 			}
 		}
-		insertDuration := time.Since(insertStart)
+		insertDuration := time.Since(start)
 
-		commitStart := time.Now()
 		// Set the state's latest_validator_performance.
-		if _, err = models.States().UpdateAll(ctx, db, models.M{"latest_validator_performance": day}); err != nil {
+		_, err = models.States().UpdateAll(ctx, db, models.M{"latest_validator_performance": day})
+		if err != nil {
 			return fmt.Errorf("failed to update state: %w", err)
 		}
 
+		start = time.Now()
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
-		commitDuration := time.Since(commitStart)
-
+		commitDuration := time.Since(start)
 		bar.Add(1)
 		fetchedDays++
 
-		logger.Info("Fetched validator performance",
+		logger.Debug("Fetched validator performance",
 			zap.Time("day", day),
 			zap.Duration("duty_counts_duration", dutyCountsDuration),
 			zap.Duration("insert_duration", insertDuration),
 			zap.Duration("commit_duration", commitDuration),
-			zap.Duration("beaconcha_total_duration", beaconchaDuration),
 		)
 	}
 	bar.Clear()
@@ -457,38 +388,6 @@ func decodeValidatorPublicKey(hexEncoded string) (phase0.BLSPubKey, error) {
 		return phase0.BLSPubKey{}, fmt.Errorf("invalid public key length: %d", len(pk))
 	}
 	return phase0.BLSPubKey(pk), nil
-}
-
-type ssvCacheItem struct {
-	Time       time.Time      `json:"time"`
-	Validators map[string]int `json:"validators"`
-}
-
-func loadSSVCache(cacheDir, date string) (*ssvCacheItem, error) {
-	cachePath := filepath.Join(cacheDir, fmt.Sprintf("%s.json", date))
-	data, err := os.ReadFile(cachePath)
-	if err != nil {
-		return nil, err
-	}
-
-	var item ssvCacheItem
-	if err := json.Unmarshal(data, &item); err != nil {
-		return nil, err
-	}
-	return &item, nil
-}
-
-func saveSSVCache(cacheDir, date string, item ssvCacheItem) error {
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return err
-	}
-
-	cachePath := filepath.Join(cacheDir, fmt.Sprintf("%s.json", date))
-	data, err := json.MarshalIndent(item, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(cachePath, data, 0644)
 }
 
 // beaconDay returns the time of the first slot of the given day,

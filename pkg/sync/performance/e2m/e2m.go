@@ -6,12 +6,10 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/carlmjohnson/requests"
-	"go.uber.org/zap"
-
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
+	"github.com/carlmjohnson/requests"
 )
 
 const (
@@ -62,7 +60,6 @@ func (m *Client) Type() performance.ProviderType {
 
 func (m *Client) ValidatorPerformance(
 	ctx context.Context,
-	logger *zap.Logger,
 	spec beacon.Spec,
 	day time.Time,
 	fromEpoch, toEpoch, activationEpoch, exitEpoch phase0.Epoch,

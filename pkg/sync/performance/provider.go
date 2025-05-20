@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"go.uber.org/zap"
 
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
 )
@@ -19,7 +18,6 @@ type Provider interface {
 	// or day (in that order of preference, depending on the provider's granularity).
 	ValidatorPerformance(
 		ctx context.Context,
-		logger *zap.Logger,
 		spec beacon.Spec,
 		day time.Time,
 		fromEpoch, toEpoch, activationEpoch, exitEpoch phase0.Epoch,
