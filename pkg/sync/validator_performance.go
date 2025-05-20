@@ -284,7 +284,7 @@ func SyncValidatorPerformance(
 						return fmt.Errorf("failed to get validator performance: %w", err)
 					}
 					if data != nil {
-						performance.EndEffectiveBalance = data.EndEffectiveBalance
+						performance.EndEffectiveBalance = null.Int64From(data.EndEffectiveBalance)
 						performance.Effectiveness = null.Float32FromPtr(data.Effectiveness)
 						performance.AttestationRate = null.Float32From(data.AttestationRate)
 						performance.ProposalsAssigned = null.Int16From(data.Proposals.Assigned)
