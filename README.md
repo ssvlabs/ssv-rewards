@@ -82,6 +82,11 @@ mechanics:
     # 0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef
     validator_redirects_file: validator_redirects_2023_11.csv
 
+    # If set to true, the reward calculation will use the actual effective balance (end_effective_balance) for active and registered effective balance calculations.
+    # If omitted or set to false, the legacy behavior will apply, which enforces a minimum of 32 ETH using GREATEST(end_effective_balance, 32 ETH) logic.
+    # This should be enabled for compatibility with Ethereum's Pectra upgrade.
+    pectra_support: false #  Use real effective balance without GREATEST(..., 32 ETH)
+
 rounds:
   - period: 2023-07 # Designated period (year-month)
     eth_apr: 0.047 # ETH Staking APR

@@ -5,7 +5,8 @@ CREATE OR REPLACE FUNCTION participations_by_validator(
     from_period DATE,
     to_period DATE DEFAULT NULL,
     owner_redirects_support BOOLEAN DEFAULT FALSE,
-    validator_redirects_support BOOLEAN DEFAULT FALSE
+    validator_redirects_support BOOLEAN DEFAULT FALSE,
+    pectra_support BOOLEAN DEFAULT FALSE
 )
 RETURNS TABLE (
     recipient_address TEXT,
@@ -13,8 +14,8 @@ RETURNS TABLE (
     public_key TEXT,
     active_days BIGINT,
     registered_days BIGINT,
-    active_effective_balance BIGINT,
-    registered_effective_balance BIGINT
+    total_active_effective_balance BIGINT,
+    total_registered_effective_balance BIGINT
 ) AS $$
 DECLARE
     _from_month DATE := date_trunc('month', from_period);
@@ -25,7 +26,10 @@ BEGIN
         SELECT
             vp.owner_address,
             vp.public_key,
-            GREATEST(vp.end_effective_balance, 32000000000) AS end_effective_balance,
+            CASE
+                WHEN pectra_support THEN vp.end_effective_balance
+                ELSE GREATEST(vp.end_effective_balance, 32000000000)
+            END AS end_effective_balance,
             COALESCE(
                 CASE WHEN validator_redirects_support THEN vr.to_address END,
                 CASE WHEN owner_redirects_support THEN owr.to_address END,
@@ -45,8 +49,8 @@ BEGIN
         vpr.public_key,
         COUNT(*) FILTER (WHERE vpr.is_active) AS active_days,
         COUNT(*) AS registered_days,
-        COALESCE(SUM(end_effective_balance) FILTER (WHERE vpr.is_active), 0)::BIGINT AS active_effective_balance,
-        COALESCE(SUM(end_effective_balance), 0)::BIGINT AS registered_effective_balance
+        COALESCE(SUM(end_effective_balance) FILTER (WHERE vpr.is_active), 0)::BIGINT AS total_active_effective_balance,
+        COALESCE(SUM(end_effective_balance), 0)::BIGINT AS total_registered_effective_balance
     FROM vp_redirected vpr
     GROUP BY vpr.recipient_address, vpr.owner_address, vpr.public_key
     HAVING COUNT(*) FILTER (WHERE is_active) > 0;
@@ -60,15 +64,16 @@ CREATE OR REPLACE FUNCTION participations_by_recipient(
     from_period DATE,
     to_period DATE DEFAULT NULL,
     owner_redirects_support BOOLEAN DEFAULT FALSE,
-    validator_redirects_support BOOLEAN DEFAULT FALSE
+    validator_redirects_support BOOLEAN DEFAULT FALSE,
+    pectra_support BOOLEAN DEFAULT FALSE
 )
 RETURNS TABLE (
     recipient_address TEXT,
     validators BIGINT,
     active_days BIGINT,
     registered_days BIGINT,
-    active_effective_balance BIGINT,
-    registered_effective_balance BIGINT
+    total_active_effective_balance BIGINT,
+    total_registered_effective_balance BIGINT
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -77,8 +82,8 @@ BEGIN
         COUNT(adv.public_key) AS validators,
         SUM(adv.active_days)::BIGINT AS active_days,
         SUM(adv.registered_days)::BIGINT AS registered_days,
-        SUM(adv.active_effective_balance)::BIGINT AS active_effective_balance,
-        SUM(adv.registered_effective_balance)::BIGINT AS registered_effective_balance
+        SUM(adv.total_active_effective_balance)::BIGINT AS total_active_effective_balance,
+        SUM(adv.total_registered_effective_balance)::BIGINT AS total_registered_effective_balance
     FROM participations_by_validator(
         _provider,
         min_attestations,
@@ -86,7 +91,8 @@ BEGIN
         from_period,
         to_period,
         owner_redirects_support,
-        validator_redirects_support
+        validator_redirects_support,
+        pectra_support
     ) adv
     GROUP BY adv.recipient_address;
 END;
@@ -99,7 +105,8 @@ CREATE OR REPLACE FUNCTION participations_by_owner(
     from_period DATE,
     to_period DATE DEFAULT NULL,
     owner_redirects_support BOOLEAN DEFAULT FALSE,
-    validator_redirects_support BOOLEAN DEFAULT FALSE
+    validator_redirects_support BOOLEAN DEFAULT FALSE,
+    pectra_support BOOLEAN DEFAULT FALSE
 )
 RETURNS TABLE (
     recipient_address TEXT,
@@ -107,8 +114,8 @@ RETURNS TABLE (
     validators BIGINT,
     active_days BIGINT,
     registered_days BIGINT,
-    active_effective_balance BIGINT,
-    registered_effective_balance BIGINT
+    total_active_effective_balance BIGINT,
+    total_registered_effective_balance BIGINT
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -118,8 +125,8 @@ BEGIN
         COUNT(adv.public_key) AS validators,
         SUM(adv.active_days)::BIGINT AS active_days,
         SUM(adv.registered_days)::BIGINT AS registered_days,
-        SUM(adv.active_effective_balance)::BIGINT AS active_effective_balance,
-        SUM(adv.registered_effective_balance)::BIGINT AS registered_effective_balance
+        SUM(adv.total_active_effective_balance)::BIGINT AS total_active_effective_balance,
+        SUM(adv.total_registered_effective_balance)::BIGINT AS total_registered_effective_balance
     FROM participations_by_validator(
         _provider,
         min_attestations,
@@ -127,7 +134,8 @@ BEGIN
         from_period,
         to_period,
         owner_redirects_support,
-        validator_redirects_support
+        validator_redirects_support,
+        pectra_support
     ) adv
     GROUP BY adv.owner_address, adv.recipient_address;
 END;

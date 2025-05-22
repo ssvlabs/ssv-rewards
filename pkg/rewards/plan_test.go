@@ -32,6 +32,7 @@ mechanics:
     criteria:
       min_attestations_per_day: 202
       min_decideds_per_day: 22
+    pectra_support: true
     tiers:
       - max_effective_balance: 96000
         apr_boost: 0.05
@@ -79,6 +80,7 @@ rounds:
 					{MaxEffectiveBalance: 96000, APRBoost: mustParseETH("0.05")},
 					{MaxEffectiveBalance: 192000, APRBoost: mustParseETH("0.04")},
 				},
+				PectraSupport: true,
 			},
 		},
 		Rounds: []Round{

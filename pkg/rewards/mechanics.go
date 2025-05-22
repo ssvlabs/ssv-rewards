@@ -42,6 +42,8 @@ type Mechanics struct {
 	ValidatorRedirects     ValidatorRedirects `yaml:"validator_redirects"`
 	OwnerRedirectsFile     string             `yaml:"owner_redirects_file"`
 	ValidatorRedirectsFile string             `yaml:"validator_redirects_file"`
+
+	PectraSupport bool `yaml:"pectra_support"`
 }
 
 type Tier struct {
