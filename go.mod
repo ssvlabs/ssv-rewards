@@ -13,8 +13,9 @@ require (
 	github.com/ethereum/go-ethereum v1.15.1
 	github.com/friendsofgo/errors v0.9.2
 	github.com/gocarina/gocsv v0.0.0-20230616125104-99d496ca653d
+	github.com/jmoiron/sqlx v1.4.0
 	github.com/joho/godotenv v1.4.0
-	github.com/lib/pq v1.10.6
+	github.com/lib/pq v1.10.9
 	github.com/mattn/go-colorable v0.1.14
 	github.com/rs/zerolog v1.32.0
 	github.com/schollz/progressbar/v3 v3.13.1
