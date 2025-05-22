@@ -104,7 +104,7 @@ func insertContractEvents(
 	for _, log := range logs {
 		abiEvent, ssvEvent, err := parseContractEvent(logger, eventParser, &log)
 		if err != nil {
-			logger.Error("failed to parse event", zap.Error(err))
+			logger.Error("failed to parse event", zap.String("tx_hash", log.TxHash.String()), zap.Error(err))
 		}
 
 		rawEventJSON, err := json.Marshal(log)

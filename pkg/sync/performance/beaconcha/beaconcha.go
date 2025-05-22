@@ -95,6 +95,8 @@ func (m *Client) ValidatorPerformance(
 
 			if found != nil {
 				return convertToPerformance(spec, *found, fromEpoch, toEpoch, activationEpoch, exitEpoch), nil
+			} else {
+				logger.Warn("could not find requested day in BEACONCHA cache", zap.String("index", fmt.Sprintf("%d", index)))
 			}
 		} else {
 			logger.Info("BEACONCHA cache is stale", zap.String("index", fmt.Sprintf("%d", index)))
