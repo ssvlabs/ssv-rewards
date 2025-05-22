@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,10 +19,10 @@ import (
 	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/carlmjohnson/requests"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/jmoiron/sqlx"
 	"github.com/schollz/progressbar/v3"
 	"github.com/sourcegraph/conc/pool"
 	"github.com/volatiletech/null/v8"
-	"github.com/volatiletech/sqlboiler/v4/boil"
 	"github.com/volatiletech/sqlboiler/v4/queries/qm"
 	"go.uber.org/zap"
 
@@ -44,6 +45,8 @@ func SyncValidatorPerformance(
 	highestBlockNumber uint64,
 	cacheDir string,
 ) error {
+	sqlxDB := sqlx.NewDb(db, "postgres")
+
 	providerType := models.ProviderType(provider.Type())
 	if err := providerType.IsValid(); err != nil {
 		return fmt.Errorf("invalid provider type (%q): %w", providerType, err)
@@ -62,11 +65,11 @@ func SyncValidatorPerformance(
 		return fmt.Errorf("failed to get validator events: %w", err)
 	}
 
-	// Don't undershoot the earliest block with validator activity.
+	// Determine earliest active day
 	var earliestActiveDay time.Time
 	for _, event := range validatorEvents {
 		if event.EventName == eventparser.ValidatorAdded {
-			block, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(uint64(event.BlockNumber)))
+			block, err := ethClient.BlockByNumber(ctx, big.NewInt(int64(event.BlockNumber)))
 			if err != nil {
 				return fmt.Errorf("failed to get earliest block time: %w", err)
 			}
@@ -81,8 +84,8 @@ func SyncValidatorPerformance(
 		fromDay = earliestActiveDay
 	}
 
-	// Don't exceed the day before highestBlockNumber.
-	highestBlock, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(highestBlockNumber))
+	// Adjust toDay based on highestBlockNumber and cutoff
+	highestBlock, err := ethClient.BlockByNumber(ctx, big.NewInt(int64(highestBlockNumber)))
 	if err != nil {
 		return fmt.Errorf("failed to get latest block time: %w", err)
 	}
@@ -103,9 +106,8 @@ func SyncValidatorPerformance(
 		return fmt.Errorf("not enough days with activity (%s - %s)", fromDay, toDay)
 	}
 
-	// Set the state's earliest_validator_performance.
-	_, err = models.States().UpdateAll(ctx, db, models.M{"earliest_validator_performance": fromDay})
-	if err != nil {
+	// Update earliest validator performance state
+	if _, err = models.States().UpdateAll(ctx, db, models.M{"earliest_validator_performance": fromDay}); err != nil {
 		return fmt.Errorf("failed to update state: %w", err)
 	}
 
@@ -166,15 +168,18 @@ func SyncValidatorPerformance(
 		}
 
 		// Keep track of active validators in this day.
-		for i, event := range validatorEvents[validatorEventsPos:] {
-			validatorEventsPos = i
+		for ; validatorEventsPos < len(validatorEvents); validatorEventsPos++ {
+			event := validatorEvents[validatorEventsPos]
+
 			if phase0.Slot(event.Slot) > spec.LastSlot(toEpoch) {
 				break
 			}
+
 			pk, err := decodeValidatorPublicKey(event.PublicKey)
 			if err != nil {
 				return fmt.Errorf("failed to decode validator public key: %w", err)
 			}
+
 			epoch := spec.EpochAt(phase0.Slot(event.Slot))
 			switch event.EventName {
 			case eventparser.ValidatorAdded:
@@ -383,9 +388,9 @@ func SyncValidatorPerformance(
 
 		// Insert ValidatorPerformance records.
 		insertStart := time.Now()
-		tx, err := db.Begin()
+		tx, err := sqlxDB.BeginTxx(ctx, nil)
 		if err != nil {
-			return fmt.Errorf("failed to begin transaction: %w", err)
+			return err
 		}
 		defer tx.Rollback()
 
@@ -393,23 +398,31 @@ func SyncValidatorPerformance(
 			if decideds, ok := decideds[performance.PublicKey]; ok {
 				performance.Decideds = null.IntFrom(decideds)
 			}
+		}
 
-			if err := performance.Insert(ctx, tx, boil.Infer()); err != nil {
-				logger.Error("failed to insert validator performance",
-					zap.String("public_key", performance.PublicKey),
-					zap.Time("day", performance.Day),
-					zap.Int64("end_effective_balance", performance.EndEffectiveBalance.Int64),
-					zap.Any("performance", performance),
+		const batchSize = 1000
+
+		for start := 0; start < len(performances); start += batchSize {
+			end := start + batchSize
+			if end > len(performances) {
+				end = len(performances)
+			}
+			batch := performances[start:end]
+			if err := BulkInsertValidatorPerformances(ctx, tx, batch); err != nil {
+				logger.Error("bulk insert failed",
+					zap.Int("batch_size", len(batch)),
+					zap.Time("day", day),
 					zap.Error(err),
 				)
-				return fmt.Errorf("failed to insert validator performance for %s at %s: %w", performance.PublicKey, performance.Day, err)
+				return fmt.Errorf("bulk insert failed: %w", err)
 			}
 		}
 		insertDuration := time.Since(insertStart)
 
-		// Set the state's latest_validator_performance.
-		if _, err = models.States().UpdateAll(ctx, db, models.M{"latest_validator_performance": day}); err != nil {
-			return fmt.Errorf("failed to update state: %w", err)
+		// Update state consistently within same transaction:
+		_, err = tx.ExecContext(ctx, `UPDATE state SET latest_validator_performance = $1`, day)
+		if err != nil {
+			return err
 		}
 
 		commitStart := time.Now()
@@ -437,6 +450,56 @@ func SyncValidatorPerformance(
 		zap.Int("fetched_days", fetchedDays),
 	)
 	return nil
+}
+
+func BulkInsertValidatorPerformances(ctx context.Context, tx *sqlx.Tx, performances []*models.ValidatorPerformance) error {
+	if len(performances) == 0 {
+		return nil
+	}
+
+	const cols = `
+		provider, day, from_epoch, to_epoch, owner_address, public_key, solvent_whole_day, index,
+		start_beacon_status, end_beacon_status, end_effective_balance, effectiveness,
+		attestation_rate, proposals_assigned, proposals_executed, proposals_missed,
+		attestations_assigned, attestations_executed, attestations_missed,
+		sync_committee_assigned, sync_committee_executed, sync_committee_missed, decideds`
+
+	query := fmt.Sprintf("INSERT INTO validator_performances (%s) VALUES ", cols)
+
+	var (
+		args       []interface{}
+		valueParts []string
+		paramIndex = 1
+	)
+
+	for _, p := range performances {
+		valueParts = append(valueParts, fmt.Sprintf("(%s)", strings.Join(generatePlaceholders(paramIndex, 23), ", ")))
+		args = append(args,
+			p.Provider, p.Day, p.FromEpoch, p.ToEpoch, p.OwnerAddress, p.PublicKey, p.SolventWholeDay, p.Index,
+			p.StartBeaconStatus, p.EndBeaconStatus, p.EndEffectiveBalance, p.Effectiveness,
+			p.AttestationRate, p.ProposalsAssigned, p.ProposalsExecuted, p.ProposalsMissed,
+			p.AttestationsAssigned, p.AttestationsExecuted, p.AttestationsMissed,
+			p.SyncCommitteeAssigned, p.SyncCommitteeExecuted, p.SyncCommitteeMissed, p.Decideds,
+		)
+		paramIndex += 23
+	}
+
+	query += strings.Join(valueParts, ", ")
+
+	_, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to insert performance: %w", err)
+	}
+	return nil
+}
+
+// generatePlaceholders generates PostgreSQL placeholders like $1, $2, ...
+func generatePlaceholders(start, count int) []string {
+	placeholders := make([]string, count)
+	for i := 0; i < count; i++ {
+		placeholders[i] = fmt.Sprintf("$%d", start+i)
+	}
+	return placeholders
 }
 
 func decodeValidatorPublicKey(hexEncoded string) (phase0.BLSPubKey, error) {
