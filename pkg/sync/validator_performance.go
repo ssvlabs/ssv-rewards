@@ -62,17 +62,6 @@ func SyncValidatorPerformance(
 		return fmt.Errorf("failed to get validator events: %w", err)
 	}
 
-	existingDays := make(map[time.Time]bool)
-	rows, err := models.ValidatorPerformances(
-		models.ValidatorPerformanceWhere.Provider.EQ(providerType),
-	).All(ctx, db)
-	if err != nil {
-		return fmt.Errorf("failed to load existing validator performance days: %w", err)
-	}
-	for _, row := range rows {
-		existingDays[row.Day.UTC().Truncate(24*time.Hour)] = true
-	}
-
 	// Don't undershoot the earliest block with validator activity.
 	var earliestActiveDay time.Time
 	for _, event := range validatorEvents {
@@ -131,6 +120,8 @@ func SyncValidatorPerformance(
 		Since        phase0.Epoch
 		OwnerAddress string
 	}
+	activeValidators := map[phase0.BLSPubKey]activeValidator{}
+	validatorEventsPos := 0
 
 	// Get validators known in the Beacon chain.
 	beaconValidators, err := models.Validators(
@@ -148,53 +139,12 @@ func SyncValidatorPerformance(
 		validatorsByPubKey[pk] = validator
 	}
 
-	activeByDay := make(map[time.Time]map[phase0.BLSPubKey]activeValidator)
-	current := make(map[phase0.BLSPubKey]activeValidator)
-	var lastSnapshotDay time.Time
-
-	for _, event := range validatorEvents {
-		eventDay := event.BlockTime.UTC().Truncate(24 * time.Hour)
-		pk, err := decodeValidatorPublicKey(event.PublicKey)
-		if err != nil {
-			return fmt.Errorf("failed to decode validator public key: %w", err)
-		}
-
-		switch event.EventName {
-		case eventparser.ValidatorAdded:
-			current[pk] = activeValidator{
-				Since:        spec.EpochAt(phase0.Slot(event.Slot)),
-				OwnerAddress: event.OwnerAddress,
-			}
-		case eventparser.ValidatorRemoved:
-			delete(current, pk)
-		case eventparser.ClusterLiquidated, eventparser.ClusterReactivated:
-			continue
-		default:
-			return fmt.Errorf("unexpected validator event: %s", event.EventName)
-		}
-
-		// Only snapshot once per day
-		if eventDay != lastSnapshotDay {
-			snapshot := make(map[phase0.BLSPubKey]activeValidator, len(current))
-			for k, v := range current {
-				snapshot[k] = v
-			}
-			activeByDay[eventDay] = snapshot
-			lastSnapshotDay = eventDay
-		}
-	}
-
 	var (
 		inMemorySSVCache   = make(map[string]*ssvCacheItem)
 		inMemorySSVCacheMu sync.Mutex
 	)
 
 	for day := fromDay; !day.After(toDay); day = day.AddDate(0, 0, 1) {
-		if existingDays[day.UTC().Truncate(24*time.Hour)] {
-			bar.Add(1)
-			continue
-		}
-
 		bar.Describe(day.Format("2006-01-02"))
 		totalDays++
 
@@ -215,7 +165,48 @@ func SyncValidatorPerformance(
 			return errors.New("epoch range is not exactly a day")
 		}
 
-		activeValidators := activeByDay[day.UTC().Truncate(24*time.Hour)]
+		// Keep track of active validators in this day.
+		for i, event := range validatorEvents[validatorEventsPos:] {
+			validatorEventsPos = i
+			if phase0.Slot(event.Slot) > spec.LastSlot(toEpoch) {
+				break
+			}
+			pk, err := decodeValidatorPublicKey(event.PublicKey)
+			if err != nil {
+				return fmt.Errorf("failed to decode validator public key: %w", err)
+			}
+			epoch := spec.EpochAt(phase0.Slot(event.Slot))
+			switch event.EventName {
+			case eventparser.ValidatorAdded:
+				activeValidators[pk] = activeValidator{
+					Since:        epoch,
+					OwnerAddress: event.OwnerAddress,
+				}
+			case eventparser.ValidatorRemoved:
+				delete(activeValidators, pk)
+			case eventparser.ClusterLiquidated, eventparser.ClusterReactivated:
+				// Ignore.
+			default:
+				return fmt.Errorf("unexpected validator event: %s", event.EventName)
+			}
+		}
+
+		// Skip if already fetched.
+		existing, err := models.ValidatorPerformances(
+			models.ValidatorPerformanceWhere.Provider.EQ(providerType),
+			models.ValidatorPerformanceWhere.Day.EQ(day),
+		).One(ctx, db)
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to get validator performance: %w", err)
+			}
+		} else {
+			if existing.FromEpoch != int(fromEpoch) || existing.ToEpoch != int(toEpoch) {
+				return fmt.Errorf("validator performance mismatch: %d-%d != %d-%d", existing.FromEpoch, existing.ToEpoch, fromEpoch, toEpoch)
+			}
+			bar.Add(1)
+			continue
+		}
 
 		var decideds map[string]int
 		dayKey := day.Format("2006-01-02")
@@ -416,12 +407,12 @@ func SyncValidatorPerformance(
 		}
 		insertDuration := time.Since(insertStart)
 
-		commitStart := time.Now()
 		// Set the state's latest_validator_performance.
 		if _, err = models.States().UpdateAll(ctx, db, models.M{"latest_validator_performance": day}); err != nil {
 			return fmt.Errorf("failed to update state: %w", err)
 		}
 
+		commitStart := time.Now()
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
