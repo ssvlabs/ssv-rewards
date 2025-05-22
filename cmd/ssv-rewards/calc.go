@@ -213,7 +213,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 				continue
 			}
 
-			totalEffectiveBalanceGwei += v.ActiveEffectiveBalance / int64(v.ActiveDays)
+			totalEffectiveBalanceGwei += v.TotalActiveEffectiveBalance / int64(v.ActiveDays)
 		}
 
 		tier, err := c.plan.Tier(round.Period, totalEffectiveBalanceGwei)
@@ -233,14 +233,17 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		// -- Validator rewards  --
 		for _, participation := range validatorParticipations {
-			participation.reward, participation.feeDeduction = c.calculateReward(
-				participation.ActiveEffectiveBalance,
-				participation.RegisteredEffectiveBalance,
+			participation.reward, participation.feeDeduction, err = c.calculateReward(
+				participation.TotalActiveEffectiveBalance,
+				participation.TotalRegisteredEffectiveBalance,
 				participation.RegisteredDays,
 				roundDays,
 				dailyReward,
 				networkFee.Gwei(),
 			)
+			if err != nil {
+				return fmt.Errorf("failed to calculate validator reward: %w", err)
+			}
 
 			byValidator = append(byValidator, &ValidatorParticipationRound{
 				Round:                  round.Period,
@@ -257,14 +260,17 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		// -- Owner rewards  --
 		for _, participation := range ownerParticipations {
-			participation.reward, participation.feeDeduction = c.calculateReward(
-				participation.ActiveEffectiveBalance,
-				participation.RegisteredEffectiveBalance,
+			participation.reward, participation.feeDeduction, err = c.calculateReward(
+				participation.TotalActiveEffectiveBalance,
+				participation.TotalRegisteredEffectiveBalance,
 				participation.RegisteredDays,
 				roundDays,
 				dailyReward,
 				networkFee.Gwei(),
 			)
+			if err != nil {
+				return fmt.Errorf("failed to calculate owner reward: %w", err)
+			}
 
 			byOwner = append(byOwner, &OwnerParticipationRound{
 				Round:              round.Period,
@@ -283,14 +289,17 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		// -- Recipient rewards  --
 		for _, participation := range recipientParticipations {
-			participation.reward, participation.feeDeduction = c.calculateReward(
-				participation.ActiveEffectiveBalance,
-				participation.RegisteredEffectiveBalance,
+			participation.reward, participation.feeDeduction, err = c.calculateReward(
+				participation.TotalActiveEffectiveBalance,
+				participation.TotalRegisteredEffectiveBalance,
 				participation.RegisteredDays,
 				roundDays,
 				dailyReward,
 				networkFee.Gwei(),
 			)
+			if err != nil {
+				return fmt.Errorf("failed to calculate recipient reward: %w", err)
+			}
 
 			byRecipient = append(byRecipient, &RecipientParticipationRound{
 				Round:                  round.Period,
@@ -401,7 +410,11 @@ func (c *CalcCmd) calculateReward(
 	roundDaysI int,
 	dailyReward *big.Int,
 	networkFee *big.Int,
-) (*big.Int, *big.Int) {
+) (*big.Int, *big.Int, error) {
+
+	if roundDaysI == 0 {
+		return nil, nil, fmt.Errorf("round days cannot be zero")
+	}
 	registeredDays := big.NewInt(int64(registeredDaysI))
 	roundDays := big.NewInt(int64(roundDaysI))
 	rewardTier := new(big.Int).Mul(dailyReward, roundDays)
@@ -441,28 +454,28 @@ func (c *CalcCmd) calculateReward(
 		feeDeducted.Set(perFee)
 	}
 
-	return reward, feeDeducted
+	return reward, feeDeducted, nil
 }
 
 type ValidatorParticipation struct {
-	RecipientAddress           string
-	OwnerAddress               string
-	PublicKey                  string
-	ActiveDays                 int
-	RegisteredDays             int
-	ActiveEffectiveBalance     int64
-	RegisteredEffectiveBalance int64
-	FeeDeduction               *precise.ETH `boil:"-"`
-	feeDeduction               *big.Int     `boil:"-"`
-	Reward                     *precise.ETH `boil:"-"`
-	reward                     *big.Int     `boil:"-"`
+	RecipientAddress                string
+	OwnerAddress                    string
+	PublicKey                       string
+	ActiveDays                      int
+	RegisteredDays                  int
+	TotalActiveEffectiveBalance     int64
+	TotalRegisteredEffectiveBalance int64
+	FeeDeduction                    *precise.ETH `boil:"-"`
+	feeDeduction                    *big.Int     `boil:"-"`
+	Reward                          *precise.ETH `boil:"-"`
+	reward                          *big.Int     `boil:"-"`
 }
 
 func (p *ValidatorParticipation) Normalize() {
 	p.Reward = precise.NewETH(nil).SetWei(p.reward)
 	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
-	p.ActiveEffectiveBalance /= Gwei
-	p.RegisteredEffectiveBalance /= Gwei
+	p.TotalActiveEffectiveBalance /= Gwei
+	p.TotalRegisteredEffectiveBalance /= Gwei
 }
 
 type ValidatorParticipationRound struct {
@@ -478,7 +491,7 @@ func (c *CalcCmd) validatorParticipations(
 ) ([]*ValidatorParticipation, error) {
 	var participations []*ValidatorParticipation
 	return participations, queries.Raw(
-		"SELECT * FROM participations_by_validator($1, $2, $3, $4, $5, $6, $7)",
+		"SELECT * FROM participations_by_validator($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -486,28 +499,29 @@ func (c *CalcCmd) validatorParticipations(
 		nil, // to_period can be nil for single-period queries
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
+		mechanics.PectraSupport,
 	).Bind(ctx, c.db, &participations)
 }
 
 type OwnerParticipation struct {
-	OwnerAddress               string
-	RecipientAddress           string
-	Validators                 int
-	ActiveDays                 int
-	RegisteredDays             int
-	ActiveEffectiveBalance     int64
-	RegisteredEffectiveBalance int64
-	FeeDeduction               *precise.ETH `boil:"-"`
-	feeDeduction               *big.Int     `boil:"-"`
-	Reward                     *precise.ETH `boil:"-"`
-	reward                     *big.Int     `boil:"-"`
+	OwnerAddress                    string
+	RecipientAddress                string
+	Validators                      int
+	ActiveDays                      int
+	RegisteredDays                  int
+	TotalActiveEffectiveBalance     int64
+	TotalRegisteredEffectiveBalance int64
+	FeeDeduction                    *precise.ETH `boil:"-"`
+	feeDeduction                    *big.Int     `boil:"-"`
+	Reward                          *precise.ETH `boil:"-"`
+	reward                          *big.Int     `boil:"-"`
 }
 
 func (p *OwnerParticipation) Normalize() {
 	p.Reward = precise.NewETH(nil).SetWei(p.reward)
 	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
-	p.ActiveEffectiveBalance /= Gwei
-	p.RegisteredEffectiveBalance /= Gwei
+	p.TotalActiveEffectiveBalance /= Gwei
+	p.TotalRegisteredEffectiveBalance /= Gwei
 }
 
 type OwnerParticipationRound struct {
@@ -523,7 +537,7 @@ func (c *CalcCmd) ownerParticipations(
 ) ([]*OwnerParticipation, error) {
 	var participations []*OwnerParticipation
 	return participations, queries.Raw(
-		"SELECT * FROM participations_by_owner($1, $2, $3, $4, $5, $6, $7)",
+		"SELECT * FROM participations_by_owner($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -531,27 +545,28 @@ func (c *CalcCmd) ownerParticipations(
 		nil,
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
+		mechanics.PectraSupport,
 	).Bind(ctx, c.db, &participations)
 }
 
 type RecipientParticipation struct {
-	RecipientAddress           string
-	Validators                 int
-	ActiveDays                 int
-	RegisteredDays             int
-	ActiveEffectiveBalance     int64        `csv:"wActiveEF"`
-	RegisteredEffectiveBalance int64        `csv:"wRegEF"`
-	FeeDeduction               *precise.ETH `boil:"-"`
-	feeDeduction               *big.Int     `boil:"-"`
-	Reward                     *precise.ETH `boil:"-"`
-	reward                     *big.Int     `boil:"-"`
+	RecipientAddress                string
+	Validators                      int
+	ActiveDays                      int
+	RegisteredDays                  int
+	TotalActiveEffectiveBalance     int64        `csv:"wActiveEF"`
+	TotalRegisteredEffectiveBalance int64        `csv:"wRegEF"`
+	FeeDeduction                    *precise.ETH `boil:"-"`
+	feeDeduction                    *big.Int     `boil:"-"`
+	Reward                          *precise.ETH `boil:"-"`
+	reward                          *big.Int     `boil:"-"`
 }
 
 func (p *RecipientParticipation) Normalize() {
 	p.Reward = precise.NewETH(nil).SetWei(p.reward)
 	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
-	p.ActiveEffectiveBalance /= Gwei
-	p.RegisteredEffectiveBalance /= Gwei
+	p.TotalActiveEffectiveBalance /= Gwei
+	p.TotalRegisteredEffectiveBalance /= Gwei
 }
 
 type RecipientParticipationRound struct {
@@ -567,7 +582,7 @@ func (c *CalcCmd) recipientParticipations(
 ) ([]*RecipientParticipation, error) {
 	var participations []*RecipientParticipation
 	return participations, queries.Raw(
-		"SELECT * FROM participations_by_recipient($1, $2, $3, $4, $5, $6, $7)",
+		"SELECT * FROM participations_by_recipient($1, $2, $3, $4, $5, $6, $7, $8)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -575,6 +590,7 @@ func (c *CalcCmd) recipientParticipations(
 		nil,
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
+		mechanics.PectraSupport,
 	).Bind(ctx, c.db, &participations)
 }
 
