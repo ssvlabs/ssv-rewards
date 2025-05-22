@@ -30,14 +30,6 @@ SSV_API_ENDPOINT=https://api.ssv.network/api/v4
 BEACONCHA_ENDPOINT=https://beaconcha.in
 BEACONCHA_API_KEY= # Optional
 BEACONCHA_REQUESTS_PER_MINUTE=20 # Adjust according to your Beaconcha.in API plan
-
-# Etherscan API
-ETHERSCAN_API_ENDPOINT=https://api.etherscan.io
-ETHERSCAN_API_KEY= # Optional
-ETHERSCAN_REQUESTS_PER_SECOND=0.1 # Adjust according to your Etherscan API plan
-
-# Gnosis API
-GNOSIS_API_ENDPOINT=https://safe-transaction-mainnet.safe.global
 ```
 
 Edit `rewards.yaml` to match [the specifications](https://docs.google.com/document/d/1pcr8QVcq9eZfiOJGrm5OsE9JAqdQy1F8Svv1xgecjNY):
@@ -45,40 +37,32 @@ Edit `rewards.yaml` to match [the specifications](https://docs.google.com/docume
 ```yaml
 version: 2
 
-criteria:
-  min_attestations_per_day: 202
-  min_decideds_per_day: 22
-
 mechanics:
   - since: 2023-07
-    features:
+    criteria:
+      min_attestations_per_day: 202
+      min_decideds_per_day: 22    
     tiers:
-      - max_participants: 2000 # Effective at up to 2,000 validators
+      - max_effective_balance: 64000 # Effective at up to 64000 effective balance
         apr_boost: 0.5 # Fraction of ETH APR to reward in SSV tokens
       # ...
-      - max_participants: 30000
+      - max_effective_balance: 96000
         apr_boost: 0.1
   - since: 2023-11
-    features:
-      # Rewards are paid to the owner address, unless it's a contract, in which case
-      # they are paid to the deployer address. Enabling gnosis_safe rewards the owner
-      # address despite it being a contract, when the contract is a Gnosis Safe.
-      - gnosis_safe
     tiers:
-      - max_participants: 2000
+      - max_effective_balance: 64000
         apr_boost: 0.25
       # ...
-      - max_participants: 30000
+      - max_effective_balance: 960000
         apr_boost: 0.05
-    # Redirect rewards to different addresses. The left-hand side is the owner address,
-    # and the right-hand side is the reward recipient address. Do not specify deployer
-    # addresses on the left-hand side, only owner addresses.
+    # Redirect rewards to different addresses.
+    # The left-hand side is the owner address, and the right-hand side is the reward recipient address.
     owner_redirects:
       "0x1234567890abcdef1234567890abcdef12345678": "0x1234567890abcdef1234567890abcdef12345678"
-    # Redirect rewards to different addresses by validator public key. The left-hand side is the validator public key,
-    # and the right-hand side is the reward recipient address.
+    # Redirect rewards to different addresses by validator public key.
+    # The left-hand side is the validator public key, and the right-hand side is the reward recipient address.
     validator_redirects:
-       "0x1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234": "0x1234567890abcdef1234567890abcdef12345678"
+      "0x1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234": "0x1234567890abcdef1234567890abcdef12345678"
 
     # Alternatively, you can specify redirects using external CSV files:
     # - You cannot use both `owner_redirects` and `owner_redirects_file` simultaneously. Choose one method.
@@ -98,10 +82,19 @@ mechanics:
     # 0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef
     validator_redirects_file: validator_redirects_2023_11.csv
 
+    # If set to true, the reward calculation will use the actual effective balance (end_effective_balance) for active and registered effective balance calculations.
+    # If omitted or set to false, the legacy behavior will apply, which enforces a minimum of 32 ETH using GREATEST(end_effective_balance, 32 ETH) logic.
+    # This should be enabled for compatibility with Ethereum's Pectra upgrade.
+    pectra_support: false #  Use real effective balance without GREATEST(..., 32 ETH)
+
 rounds:
   - period: 2023-07 # Designated period (year-month)
     eth_apr: 0.047 # ETH Staking APR
     ssv_eth: 0.0088235294 # SSV/ETH price
+
+    # `network_fee` (optional) is the network fee in **SSV** (e.g., `1.0`, `0.25`)
+    # that will be proportionally deducted from rewards for that round. If not specified, no fee is deducted.
+    network_fee: 0.0001 # Network fee in SSV
   # ...
 ```
 
@@ -149,7 +142,7 @@ This produces the following documents under the `./rewards` directory:
     └── 📄 cumulative.json     # Cumulative reward for each owner until and including that round
 ```
 
-- `recipient` is the address that eventually receives the reward, which is either the owner address, or if the owner is a contract, then the deployer address of the contract.
+- `recipient` is the address that eventually receives the reward, which is either the owner address, or if the owner is redirecting the reward, the address specified in `owner_redirects` or `owner_redirects_file`.
 
 ### Merkleization
 

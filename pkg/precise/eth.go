@@ -99,3 +99,11 @@ func (e *ETH) SetWei(wei *big.Int) *ETH {
 	e.Float().Quo(e.Float(), big.NewFloat(1e18))
 	return e
 }
+
+func (e *ETH) Gwei() *big.Int {
+	gwei := new(big.Int)
+	copy := new(big.Float).Copy(e.Float())
+	copy.Mul(copy, big.NewFloat(1e9))
+	copy.Int(gwei)
+	return gwei
+}
