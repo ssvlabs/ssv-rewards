@@ -20,6 +20,9 @@ import (
 
 const (
 	ProviderType performance.ProviderType = "beaconcha"
+	// First day of the Incentivized Mainnet Program (IMP), corresponds to 2023-07-01
+	// Used as the start_day parameter when querying the Beaconcha.in API for validator stats.
+	startDay = "941"
 )
 
 type Client struct {
@@ -119,6 +122,7 @@ func (m *Client) ValidatorPerformance(
 		Client(httpretry.Client).
 		Pathf("/api/v1/validator/stats/%d", index).
 		Param("apikey", m.apiKey).
+		Param("start_day", startDay).
 		ToJSON(&resp).
 		Fetch(ctx)
 	if err != nil {
