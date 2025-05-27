@@ -28,7 +28,7 @@ BEGIN
             vp.public_key,
             CASE
                 WHEN pectra_support THEN vp.end_effective_balance
-                ELSE GREATEST(vp.end_effective_balance, 32000000000)
+                ELSE 32000000000
             END AS end_effective_balance,
             COALESCE(
                 CASE WHEN validator_redirects_support THEN vr.to_address END,
