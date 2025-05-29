@@ -86,7 +86,8 @@ mechanics:
     # for active and registered effective balance calculations.
      # If omitted or set to false, the legacy behavior will apply, using a fixed value of 32 ETH
      # This should be enabled for compatibility with Ethereum's Pectra upgrade.
-    pectra_support: false #  Use real effective balance without GREATEST(..., 32 ETH)
+    pectra_support: false # Use real effective balance instead of fixed 32 ETH
+
 
 rounds:
   - period: 2023-07 # Designated period (year-month)
