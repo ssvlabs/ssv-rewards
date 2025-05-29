@@ -47,7 +47,10 @@ type SyncCmd struct {
 	HighestExecutionBlock      uint64  `env:"HIGHEST_EXECUTION_BLOCK"                                       help:"Execution block number to end syncing at. Defaults to the highest finalized block."`
 	Fresh                      bool    `env:"FRESH"                                                         help:"Delete all data and start from scratch."`
 	FreshSSV                   bool    `env:"FRESH_SSV"                                                     help:"Delete all SSV data and start from scratch."`
+	KeepCache                  bool    `env:"KEEP_CACHE"                                                    help:"Preserve the .cache directory at <DATA_DIR>/<network>/.cache even when using --fresh or --fresh-ssv."`
 }
+
+const cacheDirName = ".cache"
 
 func (c *SyncCmd) Run(
 	logger *zap.Logger,
@@ -84,9 +87,24 @@ func (c *SyncCmd) Run(
 	logger.Info("Applied PostgreSQL schema")
 
 	if c.FreshSSV || c.Fresh {
-		// Empty the dataDir.
-		if err := os.RemoveAll(dataDir); err != nil {
-			return fmt.Errorf("failed to remove data dir: %w", err)
+		if !c.KeepCache {
+			if err := os.RemoveAll(dataDir); err != nil {
+				return fmt.Errorf("failed to remove data dir: %w", err)
+			}
+		} else {
+			entries, err := os.ReadDir(dataDir)
+			if err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("failed to read data directory: %w", err)
+			}
+			for _, entry := range entries {
+				if entry.Name() == cacheDirName {
+					continue
+				}
+				if err := os.RemoveAll(filepath.Join(dataDir, entry.Name())); err != nil {
+					return fmt.Errorf("failed to remove %s: %w", entry.Name(), err)
+				}
+			}
+			logger.Info("Cleared data directory except .cache")
 		}
 
 		// Truncate SSV-related tables.
@@ -238,7 +256,7 @@ func (c *SyncCmd) Run(
 			c.BeaconchaEndpoint,
 			c.BeaconchaAPIKey,
 			float64(c.BeaconchaRequestsPerMinute)*0.666, // Safety margin.
-			filepath.Join(dataDir, ".cache", "beaconcha"),
+			filepath.Join(dataDir, cacheDirName, "beaconcha"),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create beaconcha client: %w", err)
@@ -247,7 +265,7 @@ func (c *SyncCmd) Run(
 		return fmt.Errorf("either e2m-endpoint or beaconcha-endpoint must be provided")
 	}
 
-	ssvCacheDir := filepath.Join(dataDir, ".cache", "ssv")
+	ssvCacheDir := filepath.Join(dataDir, cacheDirName, "ssv")
 	if err := os.MkdirAll(ssvCacheDir, 0755); err != nil {
 		return fmt.Errorf("failed to create SSV cache directory: %w", err)
 	}
@@ -262,7 +280,7 @@ func (c *SyncCmd) Run(
 		plan.Rounds[0].Period.FirstDay(),
 		plan.Rounds[len(plan.Rounds)-1].Period.LastDay(),
 		toBlock,
-		filepath.Join(dataDir, ".cache", "ssv"),
+		ssvCacheDir,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to sync validator performance: %w", err)
