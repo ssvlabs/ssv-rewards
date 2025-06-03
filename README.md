@@ -120,6 +120,20 @@ _This should sync validator performance up until 2 days ago (UTC) or until the e
 
 _This might take a while, depending on how long ago the SSV contract was deployed and how many validators there are._
 
+### Faster Sync & Lower API Usage
+
+All data fetched from **Beaconcha.in** (validator stats) and the **SSV API** (decided data) is automatically cached in:
+```
+<data-dir>/<network>/.cache
+```
+This caching improves performance, reduces sync time, and helps prevent hitting API rate limits.
+
+⚠️ By default, this cache is **deleted** when running with `--fresh` or `--fresh-ssv`.
+To preserve the `.cache` directory during a fresh sync, use the `--keep-cache` flag:
+```bash
+docker-compose run --rm sync sync --fresh --keep-cache
+```
+
 ### Calculation
 
 After syncing, you may calculate the reward distribution:
