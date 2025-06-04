@@ -9,10 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/carlmjohnson/requests"
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/time/rate"
+
+	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 )
 
 type Client struct {
@@ -77,6 +78,7 @@ func (c *Client) ContractCreation(
 			resp.Status,
 			resp.Message,
 			resp.Result,
+			addresses[0].String(),
 		)
 	}
 

@@ -15,9 +15,6 @@ import (
 	eth2client "github.com/attestantio/go-eth2-client"
 	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/bloxapp/ssv-rewards/pkg/models"
-	"github.com/bloxapp/ssv-rewards/pkg/sync/etherscan"
-	"github.com/bloxapp/ssv-rewards/pkg/sync/gnosis"
 	spectypes "github.com/bloxapp/ssv-spec/types"
 	"github.com/bloxapp/ssv/eth/contract"
 	"github.com/bloxapp/ssv/eth/eventhandler"
@@ -34,6 +31,10 @@ import (
 	"github.com/volatiletech/sqlboiler/v4/boil"
 	"github.com/volatiletech/sqlboiler/v4/queries/qm"
 	"go.uber.org/zap"
+
+	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/etherscan"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/gnosis"
 
 	ssvtypes "github.com/bloxapp/ssv/protocol/v2/types"
 )
@@ -388,7 +389,7 @@ func recordHandledEvents(
 						err,
 					)
 				}
-				if len(codeAt[ownerAddress]) > 0 {
+				if isContract(codeAt[ownerAddress]) {
 					contractCreations, err := etherscan.ContractCreation(
 						ctx,
 						[]common.Address{ownerAddress},
@@ -451,6 +452,18 @@ func recordHandledEvents(
 				}
 			}
 		}
+	}
+}
+
+// isContract returns true only for genuine contract byte-code.
+func isContract(code []byte) bool {
+	switch {
+	case len(code) == 0:
+		return false
+	case len(code) == 23 && bytes.HasPrefix(code, []byte{0xEF, 0x01, 0x00}):
+		return false
+	default:
+		return true
 	}
 }
 
