@@ -368,6 +368,16 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		)
 	}
 
+	for _, v := range totalByValidator {
+		v.Normalize()
+	}
+	for _, o := range totalByOwner {
+		o.Normalize()
+	}
+	for _, r := range totalByRecipient {
+		r.Normalize()
+	}
+
 	// Export total rewards.
 	if err := exportCSV(byValidator, filepath.Join(dir, "by-validator.csv")); err != nil {
 		return fmt.Errorf("failed to export total validator rewards: %w", err)
