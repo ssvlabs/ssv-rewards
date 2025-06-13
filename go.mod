@@ -8,7 +8,7 @@ require (
 	github.com/bloxapp/ssv v0.0.0-00010101000000-000000000000
 	github.com/bloxapp/ssv-spec v0.3.1
 	github.com/carlmjohnson/requests v0.23.5
-	github.com/ethereum/go-ethereum v1.13.14
+	github.com/ethereum/go-ethereum v1.13.15
 	github.com/friendsofgo/errors v0.9.2
 	github.com/gocarina/gocsv v0.0.0-20230616125104-99d496ca653d
 	github.com/joho/godotenv v1.4.0
