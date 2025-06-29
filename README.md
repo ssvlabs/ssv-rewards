@@ -94,9 +94,11 @@ rounds:
     eth_apr: 0.047 # ETH Staking APR
     ssv_eth: 0.0088235294 # SSV/ETH price
 
-    # `network_fee` (optional) is the network fee in **SSV** (e.g., `1.0`, `0.25`)
-    # that will be proportionally deducted from rewards for that round. If not specified, no fee is deducted.
-    network_fee: 0.0001 # Network fee in SSV
+    # `network_fee` (optional) is the network fee in Gwei (1 SSV = 1e9 Gwei)
+    # that will be proportionally deducted from rewards for the round.
+    # Example: To specify a fee of 0.1 SSV, use 100_000_000 (0.1 * 1e9) Gwei.
+    # If omitted, no fee deduction is applied.
+    network_fee: 100_000_000  # Network fee in SSV Gwei
   # ...
 ```
 
