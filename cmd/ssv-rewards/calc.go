@@ -421,50 +421,48 @@ func (c *CalcCmd) calculateReward(
 	dailyReward *big.Int,
 	networkFee *big.Int,
 ) (*big.Int, *big.Int, error) {
-
 	if roundDaysI == 0 {
 		return nil, nil, fmt.Errorf("round days cannot be zero")
 	}
-	registeredDays := big.NewInt(int64(registeredDaysI))
-	roundDays := big.NewInt(int64(roundDaysI))
-	rewardTier := new(big.Int).Mul(dailyReward, roundDays)
+
+	// ---- inputs → big.Int ----
 	wActiveEB := big.NewInt(wActiveEBi)
 	wRegEB := big.NewInt(wRegEBi)
+	registeredDays := big.NewInt(int64(registeredDaysI))
+	roundDays := big.NewInt(int64(roundDaysI))
 
-	// A = rewardTier * ∑wActiveEB
-	rewardTotal := new(big.Int).Mul(rewardTier, wActiveEB)
+	// ---- shared factors ----
+	unitBase := new(big.Int).Mul(big.NewInt(BaseEffectiveBalanceGwei), roundDays) // 32 * roundDays
+	rewardTier := new(big.Int).Mul(dailyReward, roundDays)
 
-	// B = networkFee * ∑wRegEB
-	feeTotal := new(big.Int).Mul(networkFee, wRegEB)
+	// 1. baseRewardᵢ = (rewardCap × ΣwActiveEBᵢ) / unitBase
+	baseReward := new(big.Int).Mul(rewardTier, wActiveEB)
+	baseReward.Div(baseReward, unitBase)
 
-	// C = (networkFee * ∑registeredDays) / roundDays
+	// 2. rawFeeᵢ = max( (NF × ΣwRegEBᵢ)/unitBase − (NF × ΣregisteredDaysᵢ)/roundDays , 0 )
+	feeFromEB := new(big.Int).Mul(networkFee, wRegEB)
+	feeFromEB.Div(feeFromEB, unitBase)
+
 	feeCredit := new(big.Int).Mul(networkFee, registeredDays)
 	feeCredit.Div(feeCredit, roundDays)
 
-	// D = 32 * roundDays
-	unitBase := new(big.Int).Mul(big.NewInt(BaseEffectiveBalanceGwei), roundDays)
-
-	// Rᵢ = max((A - B) / D + C, 0)
-	reward := new(big.Int).Sub(rewardTotal, feeTotal)
-	reward.Div(reward, unitBase)
-	reward.Add(reward, feeCredit)
-	if reward.Sign() < 0 {
-		reward.SetInt64(0)
+	rawFee := new(big.Int).Sub(feeFromEB, feeCredit)
+	if rawFee.Sign() < 0 {
+		rawFee.SetInt64(0)
 	}
 
-	// Fᵣᵢ = min(A / D, B / D - C)
-	perReward := new(big.Int).Div(rewardTotal, unitBase)
-	perFee := new(big.Int).Div(feeTotal, unitBase)
-	perFee.Sub(perFee, feeCredit)
-
-	feeDeducted := new(big.Int)
-	if perReward.Cmp(perFee) <= 0 {
-		feeDeducted.Set(perReward)
+	// 3. finalFeeᵢ = min(baseRewardᵢ, rawFeeᵢ)
+	finalFee := new(big.Int)
+	if baseReward.Cmp(rawFee) <= 0 {
+		finalFee.Set(baseReward)
 	} else {
-		feeDeducted.Set(perFee)
+		finalFee.Set(rawFee)
 	}
 
-	return reward, feeDeducted, nil
+	// 4. finalRewardᵢ = baseRewardᵢ − feeDeductedᵢ
+	finalReward := new(big.Int).Sub(baseReward, finalFee)
+
+	return finalReward, finalFee, nil
 }
 
 type ValidatorParticipation struct {
