@@ -325,6 +325,102 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			p.Normalize()
 		}
 
+		// Add network fee address entries if configured
+		if mechanics.NetworkFeeAddress != (rewards.ExecutionAddress{}) {
+			// Calculate total fee deductions
+			totalFees := big.NewInt(0)
+			totalActiveDays := 0
+			totalRegisteredDays := 0
+
+			for _, p := range recipientParticipations {
+				if p.feeDeduction != nil {
+					totalFees.Add(totalFees, p.feeDeduction)
+					totalActiveDays += p.ActiveDays
+					totalRegisteredDays += p.RegisteredDays
+				}
+			}
+
+			// Only add network fee entries if total fees > 0
+			if totalFees.Sign() > 0 {
+				// Convert ExecutionAddress to string format (hex without 0x)
+				networkFeeAddr := mechanics.NetworkFeeAddress.String()
+
+				// Add to owner participations
+				ownerFeeEntry := &OwnerParticipation{
+					OwnerAddress:                    networkFeeAddr,
+					RecipientAddress:                networkFeeAddr,
+					Validators:                      0,
+					ActiveDays:                      totalActiveDays,
+					RegisteredDays:                  totalRegisteredDays,
+					TotalActiveEffectiveBalance:     0,
+					TotalRegisteredEffectiveBalance: 0,
+					feeDeduction:                    big.NewInt(0),
+					reward:                          totalFees,
+				}
+				ownerFeeEntry.Normalize()
+				ownerParticipations = append(ownerParticipations, ownerFeeEntry)
+
+				// Add to recipient participations
+				recipientFeeEntry := &RecipientParticipation{
+					RecipientAddress:                networkFeeAddr,
+					Validators:                      0,
+					ActiveDays:                      totalActiveDays,
+					RegisteredDays:                  totalRegisteredDays,
+					TotalActiveEffectiveBalance:     0,
+					TotalRegisteredEffectiveBalance: 0,
+					feeDeduction:                    big.NewInt(0),
+					reward:                          totalFees,
+				}
+				recipientFeeEntry.Normalize()
+				recipientParticipations = append(recipientParticipations, recipientFeeEntry)
+
+				// Add to round-level aggregations
+				byOwner = append(byOwner, &OwnerParticipationRound{
+					Round:              round.Period,
+					OwnerParticipation: ownerFeeEntry,
+				})
+
+				byRecipient = append(byRecipient, &RecipientParticipationRound{
+					Round:                  round.Period,
+					RecipientParticipation: recipientFeeEntry,
+				})
+
+				// Add to totals
+				if existing, ok := totalByOwner[networkFeeAddr]; ok {
+					existing.ActiveDays += totalActiveDays
+					existing.reward = new(big.Int).Add(existing.reward, totalFees)
+				} else {
+					totalByOwner[networkFeeAddr] = &OwnerParticipation{
+						OwnerAddress:                    networkFeeAddr,
+						RecipientAddress:                networkFeeAddr,
+						Validators:                      0,
+						ActiveDays:                      totalActiveDays,
+						RegisteredDays:                  totalRegisteredDays,
+						TotalActiveEffectiveBalance:     0,
+						TotalRegisteredEffectiveBalance: 0,
+						feeDeduction:                    big.NewInt(0),
+						reward:                          new(big.Int).Set(totalFees),
+					}
+				}
+
+				if existing, ok := totalByRecipient[networkFeeAddr]; ok {
+					existing.ActiveDays += totalActiveDays
+					existing.reward = new(big.Int).Add(existing.reward, totalFees)
+				} else {
+					totalByRecipient[networkFeeAddr] = &RecipientParticipation{
+						RecipientAddress:                networkFeeAddr,
+						Validators:                      0,
+						ActiveDays:                      totalActiveDays,
+						RegisteredDays:                  totalRegisteredDays,
+						TotalActiveEffectiveBalance:     0,
+						TotalRegisteredEffectiveBalance: 0,
+						feeDeduction:                    big.NewInt(0),
+						reward:                          new(big.Int).Set(totalFees),
+					}
+				}
+			}
+		}
+
 		// Export CSVs
 		dir := filepath.Join(dir, round.Period.String())
 		if err := os.Mkdir(dir, 0755); err != nil {

@@ -43,7 +43,8 @@ type Mechanics struct {
 	OwnerRedirectsFile     string             `yaml:"owner_redirects_file"`
 	ValidatorRedirectsFile string             `yaml:"validator_redirects_file"`
 
-	PectraSupport bool `yaml:"pectra_support"`
+	PectraSupport     bool             `yaml:"pectra_support"`
+	NetworkFeeAddress ExecutionAddress `yaml:"network_fee_address"`
 }
 
 type Tier struct {

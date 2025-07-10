@@ -32,6 +32,8 @@ mechanics:
       apr_boost: 0.02
     - max_effective_balance: 960000
       apr_boost: 0.01
+    # Optional: Address that will collect all network fees deducted from rewards
+    network_fee_address: "0x1234567890abcdef1234567890abcdef12345678"
     # Redirect rewards to different addresses.
     # The left-hand side is the owner address, and the right-hand side is the reward recipient address.
     owner_redirects:

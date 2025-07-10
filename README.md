@@ -88,6 +88,11 @@ mechanics:
      # This should be enabled for compatibility with Ethereum's Pectra upgrade.
     pectra_support: false # Use real effective balance instead of fixed 32 ETH
 
+    # network_fee_address (optional) is the address that will collect all network fees deducted from rewards.
+    # When specified, a new entry will be added to reward CSVs showing the total collected fees for this address.
+    # These fee deductions are then included in the merkle tree as rewards for the network fee address.
+    network_fee_address: "0x1234567890abcdef1234567890abcdef12345678"
+
 
 rounds:
   - period: 2023-07 # Designated period (year-month)
