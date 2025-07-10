@@ -32,8 +32,6 @@ mechanics:
       apr_boost: 0.02
     - max_effective_balance: 960000
       apr_boost: 0.01
-    # Optional: Address that will collect all network fees deducted from rewards
-    network_fee_address: "0x1234567890abcdef1234567890abcdef12345678"
     # Redirect rewards to different addresses.
     # The left-hand side is the owner address, and the right-hand side is the reward recipient address.
     owner_redirects:
@@ -42,13 +40,13 @@ mechanics:
     # The left-hand side is the validator public key, and the right-hand side is the reward recipient address.
     validator_redirects:
       "0x1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234": "0x1234567890abcdef1234567890abcdef12345678"
-
     # Alternatively, you can specify redirects using external CSV files:
+
     # - You cannot use both `owner_redirects` and `owner_redirects_file` simultaneously. Choose one method.
     # - You cannot use both `validator_redirects` and `validator_redirects_file` simultaneously. Choose one method.
     # - Each file must have a header row with "from" and "to" as column names.
-
     # For owner redirects, the "from" column contains owner addresses, and the "to" column contains recipient addresses.
+
     # Example of owner_redirects_file content:
     # from,to
     # 0x1234567890abcdef1234567890abcdef12345678,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdef
@@ -60,6 +58,15 @@ mechanics:
     # 0x1234500012345000123450001234500012345000123450001234500012345000123450001234500012345000123450001234,0x1234567890abcdef1234567890abcdef12345678
     # 0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef,0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef
     validator_redirects_file: validator_redirects_2023_11.csv
+
+    # If set to true, the reward calculation will use the actual effective balance (end_effective_balance)
+    # for active and registered effective balance calculations.
+    # If omitted or set to false, the legacy behavior will apply, using a fixed value of 32 ETH
+    # This should be enabled for compatibility with Ethereum's Pectra upgrade.
+    pectra_support: false # Use real effective balance instead of fixed 32 ETH
+
+    # Optional: Address that will collect all network fees deducted from rewards
+    network_fee_address: "0x1234567890abcdef1234567890abcdef12345678"
 
 rounds:
   - period: 2023-07

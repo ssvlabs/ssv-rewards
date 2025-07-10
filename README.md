@@ -84,8 +84,8 @@ mechanics:
 
     # If set to true, the reward calculation will use the actual effective balance (end_effective_balance)
     # for active and registered effective balance calculations.
-     # If omitted or set to false, the legacy behavior will apply, using a fixed value of 32 ETH
-     # This should be enabled for compatibility with Ethereum's Pectra upgrade.
+    # If omitted or set to false, the legacy behavior will apply, using a fixed value of 32 ETH
+    # This should be enabled for compatibility with Ethereum's Pectra upgrade.
     pectra_support: false # Use real effective balance instead of fixed 32 ETH
 
     # network_fee_address (optional) is the address that will collect all network fees deducted from rewards.
