@@ -13,17 +13,6 @@ import (
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	"github.com/attestantio/go-eth2-client/auto"
-	"github.com/rs/zerolog"
-
-	"github.com/bloxapp/ssv-rewards/pkg/beacon"
-	"github.com/bloxapp/ssv-rewards/pkg/models"
-	"github.com/bloxapp/ssv-rewards/pkg/rewards"
-	"github.com/bloxapp/ssv-rewards/pkg/sync"
-	"github.com/bloxapp/ssv-rewards/pkg/sync/etherscan"
-	"github.com/bloxapp/ssv-rewards/pkg/sync/gnosis"
-	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
-	"github.com/bloxapp/ssv-rewards/pkg/sync/performance/beaconcha"
-	"github.com/bloxapp/ssv-rewards/pkg/sync/performance/e2m"
 	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/bloxapp/ssv/eth/executionclient"
 	"github.com/bloxapp/ssv/networkconfig"
@@ -32,10 +21,18 @@ import (
 	"github.com/bloxapp/ssv/storage/kv"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+	_ "github.com/lib/pq"
+	"github.com/rs/zerolog"
 	"github.com/volatiletech/sqlboiler/v4/boil"
 	"go.uber.org/zap"
 
-	_ "github.com/lib/pq"
+	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/rewards"
+	"github.com/bloxapp/ssv-rewards/pkg/sync"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/performance/beaconcha"
+	"github.com/bloxapp/ssv-rewards/pkg/sync/performance/e2m"
 )
 
 type SyncCmd struct {
@@ -47,15 +44,13 @@ type SyncCmd struct {
 	BeaconchaEndpoint          string  `env:"BEACONCHA_ENDPOINT"             default:"https://beaconcha.in" help:"HTTP endpoint to a beaconcha.in API."                                               required:"" xor:"monitoring-endpoint"`
 	BeaconchaAPIKey            string  `env:"BEACONCHA_API_KEY"                                             help:"API key for beaconcha.in API."`
 	BeaconchaRequestsPerMinute float64 `env:"BEACONCHA_REQUESTS_PER_MINUTE"  default:"20"                   help:"Maximum number of requests per minute to beaconcha.in API."`
-	EtherscanAPIEndpoint       string  `env:"ETHERSCAN_API_ENDPOINT"                                        help:"HTTP endpoint to an Etherscan API."                                                 required:""`
-	EtherscanAPIKey            string  `env:"ETHERSCAN_API_KEY"                                             help:"API key for Etherscan API."`
-	EtherscanRequestsPerSecond float64 `env:"ETHERSCAN_REQUESTS_PER_SECOND"  default:"0.1"                  help:"Maximum number of requests per second to Etherscan API."`
-	GnosisAPIEndpoint          string  `env:"GNOSIS_API_ENDPOINT"                                           help:"HTTP endpoint to a Gnosis API."                                                     required:""`
-	GnosisAPIRequestsPerSecond float64 `env:"GNOSIS_API_REQUESTS_PER_SECOND" default:"1"                    help:"Maximum number of requests per second to Gnosis API."                               required:""`
 	HighestExecutionBlock      uint64  `env:"HIGHEST_EXECUTION_BLOCK"                                       help:"Execution block number to end syncing at. Defaults to the highest finalized block."`
 	Fresh                      bool    `env:"FRESH"                                                         help:"Delete all data and start from scratch."`
 	FreshSSV                   bool    `env:"FRESH_SSV"                                                     help:"Delete all SSV data and start from scratch."`
+	KeepCache                  bool    `env:"KEEP_CACHE"                                                    help:"Preserve the .cache directory at <DATA_DIR>/<network>/.cache even when using --fresh or --fresh-ssv."`
 }
+
+const cacheDirName = ".cache"
 
 func (c *SyncCmd) Run(
 	logger *zap.Logger,
@@ -92,16 +87,30 @@ func (c *SyncCmd) Run(
 	logger.Info("Applied PostgreSQL schema")
 
 	if c.FreshSSV || c.Fresh {
-		// Empty the dataDir.
-		if err := os.RemoveAll(dataDir); err != nil {
-			return fmt.Errorf("failed to remove data dir: %w", err)
+		if !c.KeepCache {
+			if err := os.RemoveAll(dataDir); err != nil {
+				return fmt.Errorf("failed to remove data dir: %w", err)
+			}
+		} else {
+			entries, err := os.ReadDir(dataDir)
+			if err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("failed to read data directory: %w", err)
+			}
+			for _, entry := range entries {
+				if entry.Name() == cacheDirName {
+					continue
+				}
+				if err := os.RemoveAll(filepath.Join(dataDir, entry.Name())); err != nil {
+					return fmt.Errorf("failed to remove %s: %w", entry.Name(), err)
+				}
+			}
+			logger.Info("Cleared data directory except .cache")
 		}
 
 		// Truncate SSV-related tables.
 		truncate := `
 			TRUNCATE TABLE validators CASCADE;
 			TRUNCATE TABLE validator_events CASCADE;
-			TRUNCATE TABLE deployers CASCADE;
 			TRUNCATE TABLE validator_performances CASCADE;
 		`
 		if _, err := db.ExecContext(ctx, truncate); err != nil {
@@ -231,17 +240,7 @@ func (c *SyncCmd) Run(
 		eventParser,
 		nodeStorage,
 		db,
-		el.RPC(),
 		cl,
-		etherscan.New(
-			c.EtherscanAPIEndpoint,
-			c.EtherscanAPIKey,
-			float64(c.EtherscanRequestsPerSecond)*0.95, // Safety margin.
-		),
-		gnosis.New(
-			c.GnosisAPIEndpoint,
-			float64(c.GnosisAPIRequestsPerSecond)*0.95, // Safety margin.
-		),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to sync validator events: %w", err)
@@ -253,26 +252,35 @@ func (c *SyncCmd) Run(
 	case c.E2MEndpoint != "":
 		performanceProvider = e2m.New(c.E2MEndpoint)
 	case c.BeaconchaEndpoint != "":
-		performanceProvider = beaconcha.New(
+		performanceProvider, err = beaconcha.New(
 			c.BeaconchaEndpoint,
 			c.BeaconchaAPIKey,
 			float64(c.BeaconchaRequestsPerMinute)*0.666, // Safety margin.
+			filepath.Join(dataDir, cacheDirName, "beaconcha"),
 		)
+		if err != nil {
+			return fmt.Errorf("failed to create beaconcha client: %w", err)
+		}
 	default:
 		return fmt.Errorf("either e2m-endpoint or beaconcha-endpoint must be provided")
+	}
+
+	ssvCacheDir := filepath.Join(dataDir, cacheDirName, "ssv")
+	if err := os.MkdirAll(ssvCacheDir, 0755); err != nil {
+		return fmt.Errorf("failed to create SSV cache directory: %w", err)
 	}
 	err = sync.SyncValidatorPerformance(
 		ctx,
 		logger,
 		spec,
 		el.RPC(),
-		cl,
 		db,
 		c.SSVAPIEndpoint,
 		performanceProvider,
 		plan.Rounds[0].Period.FirstDay(),
 		plan.Rounds[len(plan.Rounds)-1].Period.LastDay(),
 		toBlock,
+		ssvCacheDir,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to sync validator performance: %w", err)

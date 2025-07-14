@@ -9,8 +9,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/bloxapp/ssv-rewards/pkg/beacon"
-	"github.com/bloxapp/ssv-rewards/pkg/models"
 	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/bloxapp/ssv/eth/executionclient"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -18,6 +16,9 @@ import (
 	"github.com/schollz/progressbar/v3"
 	"github.com/volatiletech/sqlboiler/v4/boil"
 	"go.uber.org/zap"
+
+	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/models"
 
 	_ "github.com/lib/pq"
 )
@@ -99,25 +100,23 @@ func insertContractEvents(
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
+
 	for _, log := range logs {
-		logger = logger.With(
-			zap.Int("block_number", int(log.BlockNumber)),
-			zap.String("tx_hash", log.TxHash.String()),
-			zap.Int("log_index", int(log.Index)),
-		)
 		abiEvent, ssvEvent, err := parseContractEvent(logger, eventParser, &log)
 		if err != nil {
-			logger.Error("failed to parse event", zap.Error(err))
+			logger.Error("failed to parse event", zap.String("tx_hash", log.TxHash.String()), zap.Error(err))
 		}
+
 		rawEventJSON, err := json.Marshal(log)
 		if err != nil {
-			return fmt.Errorf("failed to marshal event: %w", err)
+			return fmt.Errorf("failed to marshal raw log: %w", err)
 		}
 		ssvEventJSON, err := json.Marshal(ssvEvent)
 		if err != nil {
-			return fmt.Errorf("failed to marshal event: %w", err)
+			return fmt.Errorf("failed to marshal ssv event: %w", err)
 		}
-		dbEvent := models.ContractEvent{
+
+		dbEvent := &models.ContractEvent{
 			BlockNumber:      int(log.BlockNumber),
 			BlockHash:        log.BlockHash.String(),
 			BlockTime:        blockTime,
@@ -131,12 +130,12 @@ func insertContractEvents(
 		if abiEvent != nil {
 			dbEvent.EventName = abiEvent.Name
 		}
+
 		if err := dbEvent.Insert(ctx, tx, boil.Infer()); err != nil {
-			return fmt.Errorf("failed to insert event: %w", err)
+			return fmt.Errorf("failed to insert contract event: %w", err)
 		}
 	}
 
-	// Advance the state's HighestBlockNumber.
 	_, err = models.States().UpdateAll(ctx, tx, models.M{"highest_block_number": int(blockNumber)})
 	if err != nil {
 		return fmt.Errorf("failed to update state: %w", err)
@@ -145,6 +144,7 @@ func insertContractEvents(
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
 	return nil
 }
 

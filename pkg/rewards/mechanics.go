@@ -9,42 +9,24 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/precise"
 )
 
-const (
-	// FeatureGnosisSafe prevents rewarding deployer addresses of Gnosis Safes.
-	FeatureGnosisSafe Feature = "gnosis_safe"
-)
-
-var AvailableFeatures = Features{
-	FeatureGnosisSafe,
+type Criteria struct {
+	MinAttestationsPerDay int `yaml:"min_attestations_per_day"`
+	MinDecidedsPerDay     int `yaml:"min_decideds_per_day"`
 }
 
-type Feature string
-
-func (f Feature) String() string {
-	return string(f)
-}
-
-func (f Feature) Valid() bool {
-	return AvailableFeatures.Enabled(f)
-}
-
-type Features []Feature
-
-func (f Features) Enabled(feature Feature) bool {
-	for _, f := range f {
-		if f == feature {
-			return true
-		}
+func (c Criteria) Validate() error {
+	if c == (Criteria{}) {
+		return fmt.Errorf("missing criteria")
 	}
-	return false
-}
 
-func (f Features) Validate() error {
-	for _, feature := range f {
-		if !feature.Valid() {
-			return fmt.Errorf("invalid feature: %s", feature)
-		}
+	if c.MinAttestationsPerDay <= 0 {
+		return fmt.Errorf("missing or invalid min_attestations_per_day in criteria")
 	}
+
+	if c.MinDecidedsPerDay <= 0 {
+		return fmt.Errorf("missing or invalid min_decideds_per_day in criteria")
+	}
+
 	return nil
 }
 
@@ -52,24 +34,28 @@ type OwnerRedirects map[ExecutionAddress]ExecutionAddress
 type ValidatorRedirects map[BLSPubKey]ExecutionAddress
 
 type Mechanics struct {
-	Since                  Period             `yaml:"since"`
-	Features               Features           `yaml:"features"`
-	Tiers                  Tiers              `yaml:"tiers"`
+	Since    Period   `yaml:"since"`
+	Tiers    Tiers    `yaml:"tiers"`
+	Criteria Criteria `yaml:"criteria"`
+
 	OwnerRedirects         OwnerRedirects     `yaml:"owner_redirects"`
 	ValidatorRedirects     ValidatorRedirects `yaml:"validator_redirects"`
 	OwnerRedirectsFile     string             `yaml:"owner_redirects_file"`
 	ValidatorRedirectsFile string             `yaml:"validator_redirects_file"`
+
+	PectraSupport     bool             `yaml:"pectra_support"`
+	NetworkFeeAddress ExecutionAddress `yaml:"network_fee_address"`
 }
 
 type Tier struct {
-	MaxParticipants int          `yaml:"max_participants"`
-	APRBoost        *precise.ETH `yaml:"apr_boost"`
+	MaxEffectiveBalance int64        `yaml:"max_effective_balance"` // in ETH
+	APRBoost            *precise.ETH `yaml:"apr_boost"`
 }
 
 type Tiers []Tier
 
 func (t Tiers) Len() int           { return len(t) }
-func (t Tiers) Less(i, j int) bool { return t[i].MaxParticipants < t[j].MaxParticipants }
+func (t Tiers) Less(i, j int) bool { return t[i].MaxEffectiveBalance < t[j].MaxEffectiveBalance }
 func (t Tiers) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
 
 type MechanicsList []Mechanics
