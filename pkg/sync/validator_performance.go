@@ -400,7 +400,7 @@ func SyncValidatorPerformance(
 			}
 		}
 
-		const batchSize = 1000
+		const batchSize = 100
 
 		for start := 0; start < len(performances); start += batchSize {
 			end := start + batchSize
