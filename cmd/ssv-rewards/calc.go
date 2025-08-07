@@ -196,14 +196,6 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		if err != nil {
 			return fmt.Errorf("failed to get validator participations: %w", err)
 		}
-		ownerParticipations, err := c.ownerParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
-		if err != nil {
-			return fmt.Errorf("failed to get owner participations: %w", err)
-		}
-		recipientParticipations, err := c.recipientParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
-		if err != nil {
-			return fmt.Errorf("failed to get recipient participations: %w", err)
-		}
 
 		// Calculate appropriate tier and rewards.
 		var totalEffectiveBalanceGwei int64
@@ -252,6 +244,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			if total, ok := totalByValidator[participation.PublicKey]; ok {
 				total.ActiveDays += participation.ActiveDays
 				total.reward = new(big.Int).Add(total.reward, participation.reward)
+				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
 			} else {
 				cpy := *participation
 				totalByValidator[participation.PublicKey] = &cpy
@@ -259,18 +252,41 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		// -- Owner rewards  --
-		for _, participation := range ownerParticipations {
-			participation.reward, participation.feeDeduction, err = c.calculateReward(
-				participation.TotalActiveEffectiveBalance,
-				participation.TotalRegisteredEffectiveBalance,
-				participation.RegisteredDays,
-				roundDays,
-				dailyReward,
-				networkFee.Gwei(),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to calculate owner reward: %w", err)
+		ownerAggregations := make(map[string]*OwnerParticipation)
+
+		for _, vParticipation := range validatorParticipations {
+			ownerAddr := vParticipation.OwnerAddress
+			recipientAddr := vParticipation.RecipientAddress
+
+			if existing, ok := ownerAggregations[ownerAddr]; ok {
+				// Add to existing owner
+				existing.Validators++
+				existing.ActiveDays += vParticipation.ActiveDays
+				existing.RegisteredDays += vParticipation.RegisteredDays
+				existing.TotalActiveEffectiveBalance += vParticipation.TotalActiveEffectiveBalance
+				existing.TotalRegisteredEffectiveBalance += vParticipation.TotalRegisteredEffectiveBalance
+				existing.reward = new(big.Int).Add(existing.reward, vParticipation.reward)
+				existing.feeDeduction = new(big.Int).Add(existing.feeDeduction, vParticipation.feeDeduction)
+			} else {
+				// Create new owner entry with the validator's values
+				ownerAggregations[ownerAddr] = &OwnerParticipation{
+					OwnerAddress:                    ownerAddr,
+					RecipientAddress:                recipientAddr,
+					Validators:                      1,
+					ActiveDays:                      vParticipation.ActiveDays,
+					RegisteredDays:                  vParticipation.RegisteredDays,
+					TotalActiveEffectiveBalance:     vParticipation.TotalActiveEffectiveBalance,
+					TotalRegisteredEffectiveBalance: vParticipation.TotalRegisteredEffectiveBalance,
+					reward:                          new(big.Int).Set(vParticipation.reward),
+					feeDeduction:                    new(big.Int).Set(vParticipation.feeDeduction),
+				}
 			}
+		}
+
+		// Convert map to slice and add to round results
+		ownerParticipations := make([]*OwnerParticipation, 0, len(ownerAggregations))
+		for _, participation := range ownerAggregations {
+			ownerParticipations = append(ownerParticipations, participation)
 
 			byOwner = append(byOwner, &OwnerParticipationRound{
 				Round:              round.Period,
@@ -280,7 +296,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			key := participation.OwnerAddress
 			if total, ok := totalByOwner[key]; ok {
 				total.ActiveDays += participation.ActiveDays
+				total.RegisteredDays += participation.RegisteredDays
+				total.Validators += participation.Validators
+				total.TotalActiveEffectiveBalance += participation.TotalActiveEffectiveBalance
+				total.TotalRegisteredEffectiveBalance += participation.TotalRegisteredEffectiveBalance
 				total.reward = new(big.Int).Add(total.reward, participation.reward)
+				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
 			} else {
 				cpy := *participation
 				totalByOwner[key] = &cpy
@@ -288,18 +309,39 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		// -- Recipient rewards  --
-		for _, participation := range recipientParticipations {
-			participation.reward, participation.feeDeduction, err = c.calculateReward(
-				participation.TotalActiveEffectiveBalance,
-				participation.TotalRegisteredEffectiveBalance,
-				participation.RegisteredDays,
-				roundDays,
-				dailyReward,
-				networkFee.Gwei(),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to calculate recipient reward: %w", err)
+		recipientAggregations := make(map[string]*RecipientParticipation)
+
+		for _, vParticipation := range validatorParticipations {
+			recipientAddr := vParticipation.RecipientAddress
+
+			if existing, ok := recipientAggregations[recipientAddr]; ok {
+				// Add to existing recipient
+				existing.Validators++
+				existing.ActiveDays += vParticipation.ActiveDays
+				existing.RegisteredDays += vParticipation.RegisteredDays
+				existing.TotalActiveEffectiveBalance += vParticipation.TotalActiveEffectiveBalance
+				existing.TotalRegisteredEffectiveBalance += vParticipation.TotalRegisteredEffectiveBalance
+				existing.reward = new(big.Int).Add(existing.reward, vParticipation.reward)
+				existing.feeDeduction = new(big.Int).Add(existing.feeDeduction, vParticipation.feeDeduction)
+			} else {
+				// Create new recipient entry with the validator's values
+				recipientAggregations[recipientAddr] = &RecipientParticipation{
+					RecipientAddress:                recipientAddr,
+					Validators:                      1,
+					ActiveDays:                      vParticipation.ActiveDays,
+					RegisteredDays:                  vParticipation.RegisteredDays,
+					TotalActiveEffectiveBalance:     vParticipation.TotalActiveEffectiveBalance,
+					TotalRegisteredEffectiveBalance: vParticipation.TotalRegisteredEffectiveBalance,
+					reward:                          new(big.Int).Set(vParticipation.reward),
+					feeDeduction:                    new(big.Int).Set(vParticipation.feeDeduction),
+				}
 			}
+		}
+
+		// Convert map to slice and add to round results
+		recipientParticipations := make([]*RecipientParticipation, 0, len(recipientAggregations))
+		for _, participation := range recipientAggregations {
+			recipientParticipations = append(recipientParticipations, participation)
 
 			byRecipient = append(byRecipient, &RecipientParticipationRound{
 				Round:                  round.Period,
@@ -308,7 +350,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 			if total, ok := totalByRecipient[participation.RecipientAddress]; ok {
 				total.ActiveDays += participation.ActiveDays
+				total.RegisteredDays += participation.RegisteredDays
+				total.Validators += participation.Validators
+				total.TotalActiveEffectiveBalance += participation.TotalActiveEffectiveBalance
+				total.TotalRegisteredEffectiveBalance += participation.TotalRegisteredEffectiveBalance
 				total.reward = new(big.Int).Add(total.reward, participation.reward)
+				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
 			} else {
 				cpy := *participation
 				totalByRecipient[participation.RecipientAddress] = &cpy
@@ -633,26 +680,6 @@ type OwnerParticipationRound struct {
 	*OwnerParticipation
 }
 
-func (c *CalcCmd) ownerParticipations(
-	ctx context.Context,
-	period rewards.Period,
-	mechanics *rewards.Mechanics,
-	ownerRedirectsSupport, validatorRedirectsSupport bool,
-) ([]*OwnerParticipation, error) {
-	var participations []*OwnerParticipation
-	return participations, queries.Raw(
-		"SELECT * FROM participations_by_owner($1, $2, $3, $4, $5, $6, $7, $8)",
-		c.PerformanceProvider,
-		mechanics.Criteria.MinAttestationsPerDay,
-		mechanics.Criteria.MinDecidedsPerDay,
-		time.Time(period),
-		nil,
-		ownerRedirectsSupport,
-		validatorRedirectsSupport,
-		mechanics.PectraSupport,
-	).Bind(ctx, c.db, &participations)
-}
-
 type RecipientParticipation struct {
 	RecipientAddress                string
 	Validators                      int
@@ -676,26 +703,6 @@ func (p *RecipientParticipation) Normalize() {
 type RecipientParticipationRound struct {
 	Round rewards.Period
 	*RecipientParticipation
-}
-
-func (c *CalcCmd) recipientParticipations(
-	ctx context.Context,
-	period rewards.Period,
-	mechanics *rewards.Mechanics,
-	ownerRedirectsSupport, validatorRedirectsSupport bool,
-) ([]*RecipientParticipation, error) {
-	var participations []*RecipientParticipation
-	return participations, queries.Raw(
-		"SELECT * FROM participations_by_recipient($1, $2, $3, $4, $5, $6, $7, $8)",
-		c.PerformanceProvider,
-		mechanics.Criteria.MinAttestationsPerDay,
-		mechanics.Criteria.MinDecidedsPerDay,
-		time.Time(period),
-		nil,
-		ownerRedirectsSupport,
-		validatorRedirectsSupport,
-		mechanics.PectraSupport,
-	).Bind(ctx, c.db, &participations)
 }
 
 func (c *CalcCmd) prepareRedirections(
