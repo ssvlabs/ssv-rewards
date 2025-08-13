@@ -383,14 +383,11 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		for _, p := range validatorParticipations {
 			p.Normalize()
-		}
-		for _, p := range validatorParticipations {
 			if p.PublicKey == "aa0154e1fd66e5d945786d199699b000b3471042d696e43d1f5f73c03a2776e42b98c98a2f3b993a0488f1113da015e3" {
 				log.Printf("DEBUG After normalization:")
 				log.Printf("  FeeDeduction: %s ETH", p.FeeDeduction.String())
 				log.Printf("  TotalActiveEffectiveBalance: %d (after /= Gwei)", p.TotalActiveEffectiveBalance)
 			}
-			p.Normalize()
 		}
 
 		for _, p := range ownerParticipations {
