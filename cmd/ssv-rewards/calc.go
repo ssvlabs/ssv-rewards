@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -196,7 +197,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		if err != nil {
 			return fmt.Errorf("failed to get validator participations: %w", err)
 		}
-		
+
 		// Calculate appropriate tier and rewards.
 		var totalEffectiveBalanceGwei int64
 		for _, v := range validatorParticipations {
@@ -237,12 +238,30 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 				return fmt.Errorf("failed to calculate validator reward: %w", err)
 			}
 
+			if participation.PublicKey == "aa0154e1fd66e5d945786d199699b000b3471042d696e43d1f5f73c03a2776e42b98c98a2f3b993a0488f1113da015e3" {
+				log.Printf("DEBUG Validator %s:", participation.PublicKey)
+				log.Printf("  Inputs to calculateReward:")
+				log.Printf("    TotalActiveEffectiveBalance: %d", participation.TotalActiveEffectiveBalance)
+				log.Printf("    TotalRegisteredEffectiveBalance: %d", participation.TotalRegisteredEffectiveBalance)
+				log.Printf("    RegisteredDays: %d", participation.RegisteredDays)
+				log.Printf("    RoundDays: %d", roundDays)
+				log.Printf("    DailyReward: %s", dailyReward.String())
+				log.Printf("    NetworkFee: %s", networkFee.Gwei().String())
+				log.Printf("  Outputs from calculateReward:")
+				log.Printf("    Reward: %s Wei", participation.reward.String())
+				log.Printf("    FeeDeduction: %s Wei", participation.feeDeduction.String())
+				log.Printf("    FeeDeduction ETH: %s", precise.NewETH(nil).SetWei(participation.feeDeduction).String())
+			}
+
 			byValidator = append(byValidator, &ValidatorParticipationRound{
 				Round:                  round.Period,
 				ValidatorParticipation: participation,
 			})
 			if total, ok := totalByValidator[participation.PublicKey]; ok {
 				total.ActiveDays += participation.ActiveDays
+				total.RegisteredDays += participation.RegisteredDays
+				total.TotalActiveEffectiveBalance += participation.TotalActiveEffectiveBalance
+				total.TotalRegisteredEffectiveBalance += participation.TotalRegisteredEffectiveBalance
 				total.reward = new(big.Int).Add(total.reward, participation.reward)
 				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
 			} else {
@@ -253,11 +272,11 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		// -- Owner rewards  --
 		ownerAggregations := make(map[string]*OwnerParticipation)
-		
+
 		for _, vParticipation := range validatorParticipations {
 			ownerAddr := vParticipation.OwnerAddress
 			recipientAddr := vParticipation.RecipientAddress
-			
+
 			if existing, ok := ownerAggregations[ownerAddr]; ok {
 				// Add to existing owner
 				existing.Validators++
@@ -282,12 +301,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 				}
 			}
 		}
-		
+
 		// Convert map to slice and add to round results
 		ownerParticipations := make([]*OwnerParticipation, 0, len(ownerAggregations))
 		for _, participation := range ownerAggregations {
 			ownerParticipations = append(ownerParticipations, participation)
-			
+
 			byOwner = append(byOwner, &OwnerParticipationRound{
 				Round:              round.Period,
 				OwnerParticipation: participation,
@@ -310,10 +329,10 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		// -- Recipient rewards  --
 		recipientAggregations := make(map[string]*RecipientParticipation)
-		
+
 		for _, vParticipation := range validatorParticipations {
 			recipientAddr := vParticipation.RecipientAddress
-			
+
 			if existing, ok := recipientAggregations[recipientAddr]; ok {
 				// Add to existing recipient
 				existing.Validators++
@@ -337,12 +356,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 				}
 			}
 		}
-		
+
 		// Convert map to slice and add to round results
 		recipientParticipations := make([]*RecipientParticipation, 0, len(recipientAggregations))
 		for _, participation := range recipientAggregations {
 			recipientParticipations = append(recipientParticipations, participation)
-			
+
 			byRecipient = append(byRecipient, &RecipientParticipationRound{
 				Round:                  round.Period,
 				RecipientParticipation: participation,
@@ -365,6 +384,15 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		for _, p := range validatorParticipations {
 			p.Normalize()
 		}
+		for _, p := range validatorParticipations {
+			if p.PublicKey == "aa0154e1fd66e5d945786d199699b000b3471042d696e43d1f5f73c03a2776e42b98c98a2f3b993a0488f1113da015e3" {
+				log.Printf("DEBUG After normalization:")
+				log.Printf("  FeeDeduction: %s ETH", p.FeeDeduction.String())
+				log.Printf("  TotalActiveEffectiveBalance: %d (after /= Gwei)", p.TotalActiveEffectiveBalance)
+			}
+			p.Normalize()
+		}
+
 		for _, p := range ownerParticipations {
 			p.Normalize()
 		}
@@ -680,7 +708,6 @@ type OwnerParticipationRound struct {
 	*OwnerParticipation
 }
 
-
 type RecipientParticipation struct {
 	RecipientAddress                string
 	Validators                      int
@@ -705,7 +732,6 @@ type RecipientParticipationRound struct {
 	Round rewards.Period
 	*RecipientParticipation
 }
-
 
 func (c *CalcCmd) prepareRedirections(
 	ctx context.Context,
