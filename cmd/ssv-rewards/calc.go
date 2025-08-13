@@ -239,7 +239,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			}
 
 			if participation.PublicKey == "aa0154e1fd66e5d945786d199699b000b3471042d696e43d1f5f73c03a2776e42b98c98a2f3b993a0488f1113da015e3" {
-				log.Printf("DEBUG Validator %s:", participation.PublicKey)
+				log.Printf("=== DEBUG Round %s, Validator %s ===", round.Period.String(), participation.PublicKey)
 				log.Printf("  Inputs to calculateReward:")
 				log.Printf("    TotalActiveEffectiveBalance: %d", participation.TotalActiveEffectiveBalance)
 				log.Printf("    TotalRegisteredEffectiveBalance: %d", participation.TotalRegisteredEffectiveBalance)
