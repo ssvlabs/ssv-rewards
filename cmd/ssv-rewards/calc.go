@@ -238,15 +238,19 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 				return fmt.Errorf("failed to calculate validator reward: %w", err)
 			}
 
-			if participation.PublicKey == "aa0154e1fd66e5d945786d199699b000b3471042d696e43d1f5f73c03a2776e42b98c98a2f3b993a0488f1113da015e3" {
+			// Debug logging for specific validator and any >32 ETH validators
+			effectiveBalanceETH := participation.TotalActiveEffectiveBalance / 1e9 / 30 // Daily average
+			if participation.PublicKey == "aa0154e1fd66e5d945786d199699b000b3471042d696e43d1f5f73c03a2776e42b98c98a2f3b993a0488f1113da015e3" || effectiveBalanceETH > 32 {
 				log.Printf("=== DEBUG Round %s, Validator %s ===", round.Period.String(), participation.PublicKey)
+				log.Printf("  Daily Effective Balance: %d ETH", effectiveBalanceETH)
 				log.Printf("  Inputs to calculateReward:")
-				log.Printf("    TotalActiveEffectiveBalance: %d", participation.TotalActiveEffectiveBalance)
-				log.Printf("    TotalRegisteredEffectiveBalance: %d", participation.TotalRegisteredEffectiveBalance)
+				log.Printf("    TotalActiveEffectiveBalance: %d Gwei", participation.TotalActiveEffectiveBalance)
+				log.Printf("    TotalRegisteredEffectiveBalance: %d Gwei", participation.TotalRegisteredEffectiveBalance)
 				log.Printf("    RegisteredDays: %d", participation.RegisteredDays)
 				log.Printf("    RoundDays: %d", roundDays)
-				log.Printf("    DailyReward: %s", dailyReward.String())
-				log.Printf("    NetworkFee: %s", networkFee.Gwei().String())
+				log.Printf("    DailyReward: %s Wei", dailyReward.String())
+				log.Printf("    NetworkFee ETH: %s", networkFee.String())
+				log.Printf("    NetworkFee Gwei: %s", networkFee.Gwei().String())
 				log.Printf("  Outputs from calculateReward:")
 				log.Printf("    Reward: %s Wei", participation.reward.String())
 				log.Printf("    FeeDeduction: %s Wei", participation.feeDeduction.String())
