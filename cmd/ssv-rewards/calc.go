@@ -638,14 +638,22 @@ func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticip
 	return totalEffectiveBalanceGwei
 }
 
-// aggregateByOwner aggregates validator participations by owner address
+// aggregateByOwner aggregates validator participations by owner and recipient address
 func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*OwnerParticipation {
-	aggregations := make(map[string]*OwnerParticipation)
+	// Use composite key to match SQL GROUP BY behavior
+	type ownerRecipientKey struct {
+		owner     string
+		recipient string
+	}
+	aggregations := make(map[ownerRecipientKey]*OwnerParticipation)
 
 	for _, v := range validators {
-		ownerAddr := v.OwnerAddress
+		key := ownerRecipientKey{
+			owner:     v.OwnerAddress,
+			recipient: v.RecipientAddress,
+		}
 
-		if existing, ok := aggregations[ownerAddr]; ok {
+		if existing, ok := aggregations[key]; ok {
 			existing.Validators++
 			existing.ActiveDays += v.ActiveDays
 			existing.RegisteredDays += v.RegisteredDays
@@ -654,8 +662,8 @@ func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*Owne
 			existing.reward = new(big.Int).Add(existing.reward, v.reward)
 			existing.feeDeduction = new(big.Int).Add(existing.feeDeduction, v.feeDeduction)
 		} else {
-			aggregations[ownerAddr] = &OwnerParticipation{
-				OwnerAddress:                    ownerAddr,
+			aggregations[key] = &OwnerParticipation{
+				OwnerAddress:                    v.OwnerAddress,
 				RecipientAddress:                v.RecipientAddress,
 				Validators:                      1,
 				ActiveDays:                      v.ActiveDays,
