@@ -473,7 +473,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	return nil
 }
 
-// processRoundLegacy handles reward calculation for periods before 2025-08
+// processRoundLegacy handles reward calculation for periods before the legacy cutoff
 // It uses SQL-aggregated data to preserve backward compatibility with published merkle trees
 func (c *CalcCmd) processRoundLegacy(
 	ctx context.Context,
@@ -567,7 +567,7 @@ func (c *CalcCmd) processRoundLegacy(
 	}, nil
 }
 
-// processRound handles reward calculation for periods from 2025-08 onwards
+// processRound handles reward calculation for periods from the legacy cutoff onwards
 // It calculates fees per validator before aggregation for correct fee handling
 func (c *CalcCmd) processRound(
 	ctx context.Context,

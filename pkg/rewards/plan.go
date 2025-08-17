@@ -28,10 +28,10 @@ type Plan struct {
 	// LegacyBeforePeriod defines the cutoff for using legacy reward calculation methods.
 	// Periods before this date use:
 	//   - SQL-aggregated data (causing fee calculation issues for multi-validator recipients)
-	//   - Daily rewards that vary by month length (monthly= annual/12 monthly/days_in_month)
+	//   - Daily rewards that vary by month length (monthly = annual/12, then daily = monthly/days_in_month)
 	// Periods from this date onwards use:
 	//   - Per-validator fee calculation before aggregation (correct for multi-validator recipients)
-	//   - Constant daily rewards (annual/365)
+	//   - Constant daily rewards (daily = annual/365, then monthly = daily * days_in_month)
 	// Default: 2025-08 (to preserve merkle roots for already published periods)
 	LegacyBeforePeriod *Period `yaml:"legacy_before_period,omitempty"`
 }
@@ -138,7 +138,7 @@ func (p *Plan) validate() error {
 }
 
 // ValidatorRewardsLegacy calculates rewards with the original bug where daily rewards
-// vary by month length. Used for periods before 2025-08 to preserve merkle roots.
+// vary by month length. Used for periods before the legacy cutoff to preserve merkle roots.
 func (p *Plan) ValidatorRewardsLegacy(
 	period Period,
 	totalEffectiveBalanceGwei int64,
@@ -169,7 +169,7 @@ func (p *Plan) ValidatorRewardsLegacy(
 }
 
 // ValidatorRewards calculates rewards with correct daily rate (annual/365).
-// Used for periods from 2025-08 onwards.
+// Used for periods from the legacy cutoff onwards.
 func (p *Plan) ValidatorRewards(
 	period Period,
 	totalEffectiveBalanceGwei int64,
