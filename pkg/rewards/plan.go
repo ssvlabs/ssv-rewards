@@ -25,7 +25,7 @@ type Plan struct {
 	Mechanics MechanicsList `yaml:"mechanics"`
 	Rounds    Rounds        `yaml:"rounds"`
 
-	// LegacyBeforePeriod defines the cutoff for using legacy reward calculation methods.
+	// LegacyCalculationCutoff defines the cutoff for using legacy reward calculation methods.
 	// Periods before this date use:
 	//   - SQL-aggregated data (causing fee calculation issues for multi-validator recipients)
 	//   - Daily rewards that vary by month length (monthly = annual/12, then daily = monthly/days_in_month)
@@ -33,7 +33,7 @@ type Plan struct {
 	//   - Per-validator fee calculation before aggregation (correct for multi-validator recipients)
 	//   - Constant daily rewards (daily = annual/365, then monthly = daily * days_in_month)
 	// Default: 2025-08 (to preserve merkle roots for already published periods)
-	LegacyBeforePeriod *Period `yaml:"legacy_before_period,omitempty"`
+	LegacyCalculationCutoff *Period `yaml:"legacy_calculation_cutoff,omitempty"`
 }
 
 // ParsePlan parses the given YAML document into a Plan.
@@ -48,13 +48,13 @@ func ParsePlan(data []byte) (*Plan, error) {
 	return &plan, nil
 }
 
-// GetLegacyBeforePeriod returns the period before which legacy calculations are used.
-// If not configured, returns the default of 2025-08 (legacy used before 2025-08).
-func (p *Plan) GetLegacyBeforePeriod() Period {
-	if p.LegacyBeforePeriod != nil {
-		return *p.LegacyBeforePeriod
+// GetLegacyCalculationCutoff returns the cutoff period for legacy calculations.
+// If not configured, returns the default of 2025-08.
+func (p *Plan) GetLegacyCalculationCutoff() Period {
+	if p.LegacyCalculationCutoff != nil {
+		return *p.LegacyCalculationCutoff
 	}
-	// Default to 2025-08 if not configured (legacy used before this period)
+	// Default to 2025-08 if not configured
 	return NewPeriod(2025, 8)
 }
 
@@ -134,6 +134,7 @@ func (p *Plan) validate() error {
 			return fmt.Errorf("duplicate round: %s", p.Rounds[i].Period)
 		}
 	}
+	
 	return nil
 }
 

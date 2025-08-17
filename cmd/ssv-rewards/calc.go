@@ -177,8 +177,8 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		totalByRecipient = map[string]*RecipientParticipation{}
 	)
 
-	// Use legacy calculations before this period (defaults to 2025-08)
-	legacyBeforePeriod := c.plan.GetLegacyBeforePeriod()
+	// Get the legacy calculation cutoff (defaults to 2025-08)
+	legacyCalculationCutoff := c.plan.GetLegacyCalculationCutoff()
 
 	for _, round := range completeRounds {
 		mechanics, err := c.plan.Mechanics.At(round.Period)
@@ -195,7 +195,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		var results *roundResults
-		if time.Time(round.Period).Before(time.Time(legacyBeforePeriod)) {
+		if time.Time(round.Period).Before(time.Time(legacyCalculationCutoff)) {
 			results, err = c.processRoundLegacy(ctx, logger, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		} else {
 			results, err = c.processRound(ctx, logger, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
@@ -410,7 +410,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			return fmt.Errorf("failed to get tier: %w", err)
 		}
 		var dailyReward, monthlyReward, annualReward *big.Int
-		if time.Time(round.Period).Before(time.Time(legacyBeforePeriod)) {
+		if time.Time(round.Period).Before(time.Time(legacyCalculationCutoff)) {
 			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewardsLegacy(round.Period, totalEffectiveBalanceGwei)
 		} else {
 			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewards(round.Period, totalEffectiveBalanceGwei)

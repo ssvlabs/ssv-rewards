@@ -12,6 +12,7 @@ import (
 
 func TestParseYAML(t *testing.T) {
 	input := `
+legacy_calculation_cutoff: 2025-08
 mechanics:
   - since: 2023-07
     criteria:
@@ -55,6 +56,7 @@ rounds:
     ssv_eth: 
 `
 	expected := Plan{
+		LegacyCalculationCutoff: func() *Period { p := NewPeriod(2025, 8); return &p }(),
 		Mechanics: MechanicsList{
 			{
 				Since: NewPeriod(2023, time.July),
