@@ -394,11 +394,14 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		if err != nil {
 			return fmt.Errorf("failed to create cumulative.json: %w", err)
 		}
-		defer f.Close()
 		enc := json.NewEncoder(f)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(totalRewards); err != nil {
+			f.Close() // Close before returning error
 			return fmt.Errorf("failed to encode total rewards: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("failed to close cumulative.json: %w", err)
 		}
 
 		totalEffectiveBalanceGwei := c.calculateTotalEffectiveBalance(validatorParticipations)
