@@ -421,7 +421,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			zap.String("period", round.Period.String()),
 			zap.Int64("total_effective_balance", totalEffectiveBalanceGwei/Gwei),
 			zap.Int64("tier", tier.MaxEffectiveBalance),
-			zap.String("network_fee", round.NetworkFee.String()),
+			zap.String("network_fee_gwei", round.NetworkFee.Gwei().String()),
 			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).String()),
 			zap.String("monthly_reward", precise.NewETH(nil).SetWei(monthlyReward).String()),
 			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).String()),
@@ -557,7 +557,7 @@ func (c *CalcCmd) processRoundLegacy(
 	logger.Info("Calculated rewards for round",
 		zap.String("period", round.Period.String()),
 		zap.Int64("tier", tier.MaxEffectiveBalance),
-		zap.String("network_fee", networkFee.String()),
+		zap.String("network_fee_gwei", networkFee.Gwei().String()),
 	)
 
 	return &roundResults{
@@ -617,7 +617,7 @@ func (c *CalcCmd) processRound(
 	logger.Info("Calculated rewards for round",
 		zap.String("period", round.Period.String()),
 		zap.Int64("tier", tier.MaxEffectiveBalance),
-		zap.String("network_fee", networkFee.String()),
+		zap.String("network_fee_gwei", networkFee.Gwei().String()),
 	)
 
 	return &roundResults{
