@@ -146,7 +146,7 @@ docker-compose run --rm sync sync --fresh --keep-cache
 After syncing, you may calculate the reward distribution:
 
 ```bash
-docker-compose run --rm calc
+docker compose run --rm calc
 ```
 
 This produces the following documents under the `./rewards` directory:

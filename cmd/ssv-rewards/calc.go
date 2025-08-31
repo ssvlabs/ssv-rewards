@@ -632,6 +632,7 @@ func (c *CalcCmd) processRound(
 		if participation.PublicKey == "a9a7fecb63c410c2c92fb26766427760a58bbdcf87a8633ad45e499fe5550d31be14282159e3ad9739bc6104574b2cf1" {
 			logger.Info("DEBUG: Validator a9a7fecb63c4... (Legacy)",
 				zap.String("publicKey", participation.PublicKey),
+				zap.String("dailyReward", dailyReward.String()),
 				zap.String("reward_wei", participation.reward.String()),
 				zap.String("feeDeduction_wei", participation.feeDeduction.String()),
 				zap.String("reward_eth", precise.NewETH(nil).SetWei(participation.reward).String()),
