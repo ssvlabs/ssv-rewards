@@ -527,6 +527,22 @@ func (c *CalcCmd) processRoundLegacy(
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
 		}
+
+		// Debug logging for specific validator
+		if participation.PublicKey == "a9a7fecb63c410c2c92fb26766427760a58bbdcf87a8633ad45e499fe5550d31be14282159e3ad9739bc6104574b2cf1" {
+			logger.Info("DEBUG: Validator a9a7fecb63c4... (Legacy)",
+				zap.String("publicKey", participation.PublicKey),
+				zap.String("reward_wei", participation.reward.String()),
+				zap.String("feeDeduction_wei", participation.feeDeduction.String()),
+				zap.String("reward_eth", precise.NewETH(nil).SetWei(participation.reward).String()),
+				zap.String("feeDeduction_eth", precise.NewETH(nil).SetWei(participation.feeDeduction).String()),
+				zap.Int("activeDays", participation.ActiveDays),
+				zap.Int("registeredDays", participation.RegisteredDays),
+				zap.Int64("totalActiveEB", participation.TotalActiveEffectiveBalance),
+				zap.Int64("totalRegEB", participation.TotalRegisteredEffectiveBalance),
+				zap.String("period", round.Period.String()),
+			)
+		}
 	}
 
 	for _, participation := range ownerParticipations {
@@ -610,6 +626,22 @@ func (c *CalcCmd) processRound(
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
+		}
+
+		// Debug logging for specific validator
+		if participation.PublicKey == "a9a7fecb63c410c2c92fb26766427760a58bbdcf87a8633ad45e499fe5550d31be14282159e3ad9739bc6104574b2cf1" {
+			logger.Info("DEBUG: Validator a9a7fecb63c4... (Legacy)",
+				zap.String("publicKey", participation.PublicKey),
+				zap.String("reward_wei", participation.reward.String()),
+				zap.String("feeDeduction_wei", participation.feeDeduction.String()),
+				zap.String("reward_eth", precise.NewETH(nil).SetWei(participation.reward).String()),
+				zap.String("feeDeduction_eth", precise.NewETH(nil).SetWei(participation.feeDeduction).String()),
+				zap.Int("activeDays", participation.ActiveDays),
+				zap.Int("registeredDays", participation.RegisteredDays),
+				zap.Int64("totalActiveEB", participation.TotalActiveEffectiveBalance),
+				zap.Int64("totalRegEB", participation.TotalRegisteredEffectiveBalance),
+				zap.String("period", round.Period.String()),
+			)
 		}
 	}
 
@@ -766,15 +798,12 @@ func (c *CalcCmd) calculateReward(
 		rawFee.SetInt64(0)
 	}
 
-	// Convert rawFee from Gwei to Wei for correct comparison
-	rawFeeWei := new(big.Int).Mul(rawFee, big.NewInt(1e9))
-	
 	// 3. finalFeeᵢ = min(baseRewardᵢ, rawFeeᵢ)
 	finalFee := new(big.Int)
-	if baseReward.Cmp(rawFeeWei) <= 0 {
+	if baseReward.Cmp(rawFee) <= 0 {
 		finalFee.Set(baseReward)
 	} else {
-		finalFee.Set(rawFeeWei)
+		finalFee.Set(rawFee)
 	}
 
 	// 4. finalRewardᵢ = baseRewardᵢ − feeDeductedᵢ
