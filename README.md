@@ -112,7 +112,7 @@ rounds:
 First, start PostgreSQL and wait a few seconds for it to be ready:
 
 ```bash
-docker-compose up -d postgres
+docker compose up -d postgres
 ```
 
 ### Synchronization
@@ -120,7 +120,7 @@ docker-compose up -d postgres
 Synchronize validator activity and performance:
 
 ```bash
-docker-compose run --rm sync
+docker compose run --rm sync
 ```
 
 _This should sync validator performance up until 2 days ago (UTC) or until the end of the last period in `rewards.yaml` (whichever is lower). Therefore, in order to sync the last month, waiting until the 3rd of this month is required._
@@ -138,7 +138,7 @@ This caching improves performance, reduces sync time, and helps prevent hitting 
 ⚠️ By default, this cache is **deleted** when running with `--fresh` or `--fresh-ssv`.
 To preserve the `.cache` directory during a fresh sync, use the `--keep-cache` flag:
 ```bash
-docker-compose run --rm sync sync --fresh --keep-cache
+docker compose run --rm sync sync --fresh --keep-cache
 ```
 
 ### Calculation
@@ -146,7 +146,7 @@ docker-compose run --rm sync sync --fresh --keep-cache
 After syncing, you may calculate the reward distribution:
 
 ```bash
-docker-compose run --rm calc
+docker compose run --rm calc
 ```
 
 This produces the following documents under the `./rewards` directory:
@@ -185,11 +185,11 @@ After calculating the reward distribution, you may merkleize the rewards for a s
 1. Pull the changes and rebuild the Docker images:
    ```bash
    git pull
-   docker-compose build
+   docker compose build
    ```
 2. Refer to `.env.example` and update your `.env` file if necessary.
 3. Refer to `rewards.example.yaml` and update your `rewards.yaml` file if necessary.
 4. Sync with `--fresh` to re-create the databases and sync from scratch:
    ```bash
-   docker-compose run --rm sync sync --fresh
+   docker compose run --rm sync sync --fresh
    ```

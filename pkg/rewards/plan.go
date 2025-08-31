@@ -134,7 +134,7 @@ func (p *Plan) validate() error {
 			return fmt.Errorf("duplicate round: %s", p.Rounds[i].Period)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -142,13 +142,8 @@ func (p *Plan) validate() error {
 // vary by month length. Used for periods before the legacy cutoff to preserve merkle roots.
 func (p *Plan) ValidatorRewardsLegacy(
 	period Period,
-	totalEffectiveBalanceGwei int64,
+	tier *Tier,
 ) (daily, monthly, annual *big.Int, err error) {
-	tier, err := p.Tier(period, totalEffectiveBalanceGwei)
-	if err != nil {
-		err = fmt.Errorf("failed to determine tier: %w", err)
-		return
-	}
 	for _, round := range p.Rounds {
 		if round.Period == period {
 			// (validatorETHBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost
@@ -173,13 +168,8 @@ func (p *Plan) ValidatorRewardsLegacy(
 // Used for periods from the legacy cutoff onwards.
 func (p *Plan) ValidatorRewards(
 	period Period,
-	totalEffectiveBalanceGwei int64,
+	tier *Tier,
 ) (daily, monthly, annual *big.Int, err error) {
-	tier, err := p.Tier(period, totalEffectiveBalanceGwei)
-	if err != nil {
-		err = fmt.Errorf("failed to determine tier: %w", err)
-		return
-	}
 	for _, round := range p.Rounds {
 		if round.Period == period {
 			// (validatorETHBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost

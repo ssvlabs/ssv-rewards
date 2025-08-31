@@ -207,6 +207,8 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		validatorParticipations := results.validatorParticipations
 		ownerParticipations := results.ownerParticipations
 		recipientParticipations := results.recipientParticipations
+		totalEffectiveBalanceGwei := results.totalEffectiveBalanceGwei
+		tier := results.tier
 
 		// Add validator participations to round and total aggregations
 		for _, participation := range validatorParticipations {
@@ -404,16 +406,11 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			return fmt.Errorf("failed to close cumulative.json: %w", err)
 		}
 
-		totalEffectiveBalanceGwei := c.calculateTotalEffectiveBalance(validatorParticipations)
-		tier, err := c.plan.Tier(round.Period, totalEffectiveBalanceGwei)
-		if err != nil {
-			return fmt.Errorf("failed to get tier: %w", err)
-		}
 		var dailyReward, monthlyReward, annualReward *big.Int
 		if time.Time(round.Period).Before(time.Time(legacyCalculationCutoff)) {
-			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewardsLegacy(round.Period, totalEffectiveBalanceGwei)
+			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewardsLegacy(round.Period, tier)
 		} else {
-			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewards(round.Period, totalEffectiveBalanceGwei)
+			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewards(round.Period, tier)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to get rewards: %w", err)
@@ -507,7 +504,7 @@ func (c *CalcCmd) processRoundLegacy(
 		return nil, fmt.Errorf("failed to get tier: %w", err)
 	}
 
-	dailyReward, _, _, err := c.plan.ValidatorRewardsLegacy(round.Period, totalEffectiveBalanceGwei)
+	dailyReward, _, _, err := c.plan.ValidatorRewardsLegacy(round.Period, tier)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get rewards: %w", err)
 	}
@@ -564,9 +561,11 @@ func (c *CalcCmd) processRoundLegacy(
 	)
 
 	return &roundResults{
-		validatorParticipations: validatorParticipations,
-		ownerParticipations:     ownerParticipations,
-		recipientParticipations: recipientParticipations,
+		validatorParticipations:   validatorParticipations,
+		ownerParticipations:       ownerParticipations,
+		recipientParticipations:   recipientParticipations,
+		totalEffectiveBalanceGwei: totalEffectiveBalanceGwei,
+		tier:                      tier,
 	}, nil
 }
 
@@ -585,13 +584,12 @@ func (c *CalcCmd) processRound(
 	}
 
 	totalEffectiveBalanceGwei := c.calculateTotalEffectiveBalance(validatorParticipations)
-
 	tier, err := c.plan.Tier(round.Period, totalEffectiveBalanceGwei)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tier: %w", err)
 	}
 
-	dailyReward, _, _, err := c.plan.ValidatorRewards(round.Period, totalEffectiveBalanceGwei)
+	dailyReward, _, _, err := c.plan.ValidatorRewards(round.Period, tier)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get rewards: %w", err)
 	}
@@ -623,9 +621,11 @@ func (c *CalcCmd) processRound(
 	)
 
 	return &roundResults{
-		validatorParticipations: validatorParticipations,
-		ownerParticipations:     ownerParticipations,
-		recipientParticipations: recipientParticipations,
+		validatorParticipations:   validatorParticipations,
+		ownerParticipations:       ownerParticipations,
+		recipientParticipations:   recipientParticipations,
+		totalEffectiveBalanceGwei: totalEffectiveBalanceGwei,
+		tier:                      tier,
 	}, nil
 }
 
@@ -724,9 +724,11 @@ func (c *CalcCmd) aggregateByRecipient(validators []*ValidatorParticipation) []*
 
 // roundResults contains all the calculated participations for a round
 type roundResults struct {
-	validatorParticipations []*ValidatorParticipation
-	ownerParticipations     []*OwnerParticipation
-	recipientParticipations []*RecipientParticipation
+	validatorParticipations   []*ValidatorParticipation
+	ownerParticipations       []*OwnerParticipation
+	recipientParticipations   []*RecipientParticipation
+	totalEffectiveBalanceGwei int64
+	tier                      *rewards.Tier
 }
 
 func (c *CalcCmd) calculateReward(
