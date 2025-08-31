@@ -655,7 +655,6 @@ func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*Owne
 			owner:     v.OwnerAddress,
 			recipient: v.RecipientAddress,
 		}
-
 		if existing, ok := aggregations[key]; ok {
 			existing.Validators++
 			existing.ActiveDays += v.ActiveDays
@@ -767,12 +766,15 @@ func (c *CalcCmd) calculateReward(
 		rawFee.SetInt64(0)
 	}
 
+	// Convert rawFee from Gwei to Wei for correct comparison
+	rawFeeWei := new(big.Int).Mul(rawFee, big.NewInt(1e9))
+	
 	// 3. finalFeeᵢ = min(baseRewardᵢ, rawFeeᵢ)
 	finalFee := new(big.Int)
-	if baseReward.Cmp(rawFee) <= 0 {
+	if baseReward.Cmp(rawFeeWei) <= 0 {
 		finalFee.Set(baseReward)
 	} else {
-		finalFee.Set(rawFee)
+		finalFee.Set(rawFeeWei)
 	}
 
 	// 4. finalRewardᵢ = baseRewardᵢ − feeDeductedᵢ
