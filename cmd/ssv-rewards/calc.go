@@ -519,7 +519,7 @@ func (c *CalcCmd) processRoundLegacy(
 			participation.RegisteredDays,
 			roundDays,
 			dailyReward,
-			networkFee.Wei(),
+			networkFee.Gwei(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
@@ -533,7 +533,7 @@ func (c *CalcCmd) processRoundLegacy(
 			participation.RegisteredDays,
 			roundDays,
 			dailyReward,
-			networkFee.Wei(),
+			networkFee.Gwei(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate owner reward: %w", err)
@@ -547,7 +547,7 @@ func (c *CalcCmd) processRoundLegacy(
 			participation.RegisteredDays,
 			roundDays,
 			dailyReward,
-			networkFee.Wei(),
+			networkFee.Gwei(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate recipient reward: %w", err)
