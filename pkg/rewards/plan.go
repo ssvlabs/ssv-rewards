@@ -127,7 +127,7 @@ func (p *Plan) validate() error {
 	}
 	for i := 1; i < len(p.Rounds); i++ {
 		round := p.Rounds[i-1]
-		if round.NetworkFee != nil && round.NetworkFee.Gwei().Sign() < 0 {
+		if round.NetworkFee != nil && round.NetworkFee.Wei().Sign() < 0 {
 			return fmt.Errorf("network_fee cannot be negative in round %s", round.Period)
 		}
 		if p.Rounds[i-1].Period == p.Rounds[i].Period {
