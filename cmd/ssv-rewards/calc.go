@@ -177,6 +177,9 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		totalByRecipient = map[string]*RecipientParticipation{}
 	)
 
+	// Get the legacy calculation cutoff (defaults to 2025-08)
+	legacyCalculationCutoff := c.plan.GetLegacyCalculationCutoff()
+
 	for _, round := range completeRounds {
 		mechanics, err := c.plan.Mechanics.At(round.Period)
 		if err != nil {
@@ -191,87 +194,43 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			return fmt.Errorf("failed to prepare redirections for period %s: %w", round.Period, err)
 		}
 
-		// Fetch participations
-		validatorParticipations, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
-		if err != nil {
-			return fmt.Errorf("failed to get validator participations: %w", err)
+		var results *roundResults
+		if time.Time(round.Period).Before(time.Time(legacyCalculationCutoff)) {
+			results, err = c.processRoundLegacy(ctx, logger, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+		} else {
+			results, err = c.processRound(ctx, logger, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		}
-		ownerParticipations, err := c.ownerParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		if err != nil {
-			return fmt.Errorf("failed to get owner participations: %w", err)
-		}
-		recipientParticipations, err := c.recipientParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
-		if err != nil {
-			return fmt.Errorf("failed to get recipient participations: %w", err)
+			return fmt.Errorf("failed to process round %s: %w", round.Period, err)
 		}
 
-		// Calculate appropriate tier and rewards.
-		var totalEffectiveBalanceGwei int64
-		for _, v := range validatorParticipations {
-			// TODO can it happen?
-			if v.ActiveDays == 0 {
-				continue
-			}
+		validatorParticipations := results.validatorParticipations
+		ownerParticipations := results.ownerParticipations
+		recipientParticipations := results.recipientParticipations
+		totalEffectiveBalanceGwei := results.totalEffectiveBalanceGwei
+		tier := results.tier
 
-			totalEffectiveBalanceGwei += v.TotalActiveEffectiveBalance / int64(v.ActiveDays)
-		}
-
-		tier, err := c.plan.Tier(round.Period, totalEffectiveBalanceGwei)
-		if err != nil {
-			return fmt.Errorf("failed to get tier (period: %s): %w", round.Period, err)
-		}
-		dailyReward, monthlyReward, annualReward, err := c.plan.ValidatorRewards(
-			round.Period,
-			totalEffectiveBalanceGwei,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to get reward: %w", err)
-		}
-
-		roundDays := round.Period.Days()
-		networkFee := round.NetworkFee
-
-		// -- Validator rewards  --
+		// Add validator participations to round and total aggregations
 		for _, participation := range validatorParticipations {
-			participation.reward, participation.feeDeduction, err = c.calculateReward(
-				participation.TotalActiveEffectiveBalance,
-				participation.TotalRegisteredEffectiveBalance,
-				participation.RegisteredDays,
-				roundDays,
-				dailyReward,
-				networkFee.Gwei(),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to calculate validator reward: %w", err)
-			}
-
 			byValidator = append(byValidator, &ValidatorParticipationRound{
 				Round:                  round.Period,
 				ValidatorParticipation: participation,
 			})
 			if total, ok := totalByValidator[participation.PublicKey]; ok {
 				total.ActiveDays += participation.ActiveDays
+				total.RegisteredDays += participation.RegisteredDays
+				total.TotalActiveEffectiveBalance += participation.TotalActiveEffectiveBalance
+				total.TotalRegisteredEffectiveBalance += participation.TotalRegisteredEffectiveBalance
 				total.reward = new(big.Int).Add(total.reward, participation.reward)
+				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
 			} else {
 				cpy := *participation
 				totalByValidator[participation.PublicKey] = &cpy
 			}
 		}
 
-		// -- Owner rewards  --
+		// Add owner participations to round and total aggregations
 		for _, participation := range ownerParticipations {
-			participation.reward, participation.feeDeduction, err = c.calculateReward(
-				participation.TotalActiveEffectiveBalance,
-				participation.TotalRegisteredEffectiveBalance,
-				participation.RegisteredDays,
-				roundDays,
-				dailyReward,
-				networkFee.Gwei(),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to calculate owner reward: %w", err)
-			}
-
 			byOwner = append(byOwner, &OwnerParticipationRound{
 				Round:              round.Period,
 				OwnerParticipation: participation,
@@ -280,27 +239,20 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			key := participation.OwnerAddress
 			if total, ok := totalByOwner[key]; ok {
 				total.ActiveDays += participation.ActiveDays
+				total.RegisteredDays += participation.RegisteredDays
+				total.Validators += participation.Validators
+				total.TotalActiveEffectiveBalance += participation.TotalActiveEffectiveBalance
+				total.TotalRegisteredEffectiveBalance += participation.TotalRegisteredEffectiveBalance
 				total.reward = new(big.Int).Add(total.reward, participation.reward)
+				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
 			} else {
 				cpy := *participation
 				totalByOwner[key] = &cpy
 			}
 		}
 
-		// -- Recipient rewards  --
+		// Add recipient participations to round and total aggregations
 		for _, participation := range recipientParticipations {
-			participation.reward, participation.feeDeduction, err = c.calculateReward(
-				participation.TotalActiveEffectiveBalance,
-				participation.TotalRegisteredEffectiveBalance,
-				participation.RegisteredDays,
-				roundDays,
-				dailyReward,
-				networkFee.Gwei(),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to calculate recipient reward: %w", err)
-			}
-
 			byRecipient = append(byRecipient, &RecipientParticipationRound{
 				Round:                  round.Period,
 				RecipientParticipation: participation,
@@ -308,13 +260,19 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 			if total, ok := totalByRecipient[participation.RecipientAddress]; ok {
 				total.ActiveDays += participation.ActiveDays
+				total.RegisteredDays += participation.RegisteredDays
+				total.Validators += participation.Validators
+				total.TotalActiveEffectiveBalance += participation.TotalActiveEffectiveBalance
+				total.TotalRegisteredEffectiveBalance += participation.TotalRegisteredEffectiveBalance
 				total.reward = new(big.Int).Add(total.reward, participation.reward)
+				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
 			} else {
 				cpy := *participation
 				totalByRecipient[participation.RecipientAddress] = &cpy
 			}
 		}
 
+		// Normalize all participations
 		for _, p := range validatorParticipations {
 			p.Normalize()
 		}
@@ -327,7 +285,6 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		// Add network fee address entries if configured
 		if mechanics.NetworkFeeAddress != (rewards.ExecutionAddress{}) {
-			// Calculate total fee deductions
 			totalFees := big.NewInt(0)
 			totalActiveDays := 0
 			totalRegisteredDays := 0
@@ -340,12 +297,9 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 				}
 			}
 
-			// Only add network fee entries if total fees > 0
 			if totalFees.Sign() > 0 {
-				// Convert ExecutionAddress to string format (hex without 0x)
 				networkFeeAddr := mechanics.NetworkFeeAddress.String()
 
-				// Add to owner participations
 				ownerFeeEntry := &OwnerParticipation{
 					OwnerAddress:                    networkFeeAddr,
 					RecipientAddress:                networkFeeAddr,
@@ -360,7 +314,6 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 				ownerFeeEntry.Normalize()
 				ownerParticipations = append(ownerParticipations, ownerFeeEntry)
 
-				// Add to recipient participations
 				recipientFeeEntry := &RecipientParticipation{
 					RecipientAddress:                networkFeeAddr,
 					Validators:                      0,
@@ -374,7 +327,6 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 				recipientFeeEntry.Normalize()
 				recipientParticipations = append(recipientParticipations, recipientFeeEntry)
 
-				// Add to round-level aggregations
 				byOwner = append(byOwner, &OwnerParticipationRound{
 					Round:              round.Period,
 					OwnerParticipation: ownerFeeEntry,
@@ -385,7 +337,6 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 					RecipientParticipation: recipientFeeEntry,
 				})
 
-				// Add to totals
 				if existing, ok := totalByOwner[networkFeeAddr]; ok {
 					existing.ActiveDays += totalActiveDays
 					existing.reward = new(big.Int).Add(existing.reward, totalFees)
@@ -422,17 +373,17 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		// Export CSVs
-		dir := filepath.Join(dir, round.Period.String())
-		if err := os.Mkdir(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %q: %w", dir, err)
+		roundDir := filepath.Join(dir, round.Period.String())
+		if err := os.Mkdir(roundDir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %q: %w", roundDir, err)
 		}
-		if err := exportCSV(validatorParticipations, filepath.Join(dir, "by-validator.csv")); err != nil {
+		if err := exportCSV(validatorParticipations, filepath.Join(roundDir, "by-validator.csv")); err != nil {
 			return fmt.Errorf("failed to export validator rewards: %w", err)
 		}
-		if err := exportCSV(ownerParticipations, filepath.Join(dir, "by-owner.csv")); err != nil {
+		if err := exportCSV(ownerParticipations, filepath.Join(roundDir, "by-owner.csv")); err != nil {
 			return fmt.Errorf("failed to export owner rewards: %w", err)
 		}
-		if err := exportCSV(recipientParticipations, filepath.Join(dir, "by-recipient.csv")); err != nil {
+		if err := exportCSV(recipientParticipations, filepath.Join(roundDir, "by-recipient.csv")); err != nil {
 			return fmt.Errorf("failed to export recipient rewards: %w", err)
 		}
 
@@ -441,15 +392,28 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		for _, participation := range totalByRecipient {
 			totalRewards["0x"+participation.RecipientAddress] = participation.reward.String()
 		}
-		f, err := os.Create(filepath.Join(dir, "cumulative.json"))
+		f, err := os.Create(filepath.Join(roundDir, "cumulative.json"))
 		if err != nil {
 			return fmt.Errorf("failed to create cumulative.json: %w", err)
 		}
-		defer f.Close()
 		enc := json.NewEncoder(f)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(totalRewards); err != nil {
+			f.Close() // Close before returning error
 			return fmt.Errorf("failed to encode total rewards: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("failed to close cumulative.json: %w", err)
+		}
+
+		var dailyReward, monthlyReward, annualReward *big.Int
+		if time.Time(round.Period).Before(time.Time(legacyCalculationCutoff)) {
+			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewardsLegacy(round.Period, tier)
+		} else {
+			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewards(round.Period, tier)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to get rewards: %w", err)
 		}
 
 		logger.Info(
@@ -457,7 +421,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			zap.String("period", round.Period.String()),
 			zap.Int64("total_effective_balance", totalEffectiveBalanceGwei/Gwei),
 			zap.Int64("tier", tier.MaxEffectiveBalance),
-			zap.String("network_fee", networkFee.String()),
+			zap.String("network_fee", round.NetworkFee.String()),
 			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).String()),
 			zap.String("monthly_reward", precise.NewETH(nil).SetWei(monthlyReward).String()),
 			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).String()),
@@ -507,6 +471,264 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 	}
 
 	return nil
+}
+
+// processRoundLegacy handles reward calculation for periods before the legacy cutoff
+// It uses SQL-aggregated data to preserve backward compatibility with published merkle trees
+func (c *CalcCmd) processRoundLegacy(
+	ctx context.Context,
+	logger *zap.Logger,
+	round rewards.Round,
+	mechanics *rewards.Mechanics,
+	ownerRedirectsSupport, validatorRedirectsSupport bool,
+) (*roundResults, error) {
+	validatorParticipations, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get validator participations: %w", err)
+	}
+
+	ownerParticipations, err := c.ownerParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get owner participations: %w", err)
+	}
+
+	recipientParticipations, err := c.recipientParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recipient participations: %w", err)
+	}
+
+	totalEffectiveBalanceGwei := c.calculateTotalEffectiveBalance(validatorParticipations)
+
+	tier, err := c.plan.Tier(round.Period, totalEffectiveBalanceGwei)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tier: %w", err)
+	}
+
+	dailyReward, _, _, err := c.plan.ValidatorRewardsLegacy(round.Period, tier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rewards: %w", err)
+	}
+
+	roundDays := round.Period.Days()
+	networkFee := round.NetworkFee
+
+	for _, participation := range validatorParticipations {
+		participation.reward, participation.feeDeduction, err = c.calculateReward(
+			participation.TotalActiveEffectiveBalance,
+			participation.TotalRegisteredEffectiveBalance,
+			participation.RegisteredDays,
+			roundDays,
+			dailyReward,
+			networkFee.Wei(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
+		}
+	}
+
+	for _, participation := range ownerParticipations {
+		participation.reward, participation.feeDeduction, err = c.calculateReward(
+			participation.TotalActiveEffectiveBalance,
+			participation.TotalRegisteredEffectiveBalance,
+			participation.RegisteredDays,
+			roundDays,
+			dailyReward,
+			networkFee.Wei(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate owner reward: %w", err)
+		}
+	}
+
+	for _, participation := range recipientParticipations {
+		participation.reward, participation.feeDeduction, err = c.calculateReward(
+			participation.TotalActiveEffectiveBalance,
+			participation.TotalRegisteredEffectiveBalance,
+			participation.RegisteredDays,
+			roundDays,
+			dailyReward,
+			networkFee.Wei(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate recipient reward: %w", err)
+		}
+	}
+
+	logger.Info("Calculated rewards for round",
+		zap.String("period", round.Period.String()),
+		zap.Int64("tier", tier.MaxEffectiveBalance),
+		zap.String("network_fee", networkFee.String()),
+	)
+
+	return &roundResults{
+		validatorParticipations:   validatorParticipations,
+		ownerParticipations:       ownerParticipations,
+		recipientParticipations:   recipientParticipations,
+		totalEffectiveBalanceGwei: totalEffectiveBalanceGwei,
+		tier:                      tier,
+	}, nil
+}
+
+// processRound handles reward calculation for periods from the legacy cutoff onwards
+// It calculates fees per validator before aggregation for correct fee handling
+func (c *CalcCmd) processRound(
+	ctx context.Context,
+	logger *zap.Logger,
+	round rewards.Round,
+	mechanics *rewards.Mechanics,
+	ownerRedirectsSupport, validatorRedirectsSupport bool,
+) (*roundResults, error) {
+	validatorParticipations, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get validator participations: %w", err)
+	}
+
+	totalEffectiveBalanceGwei := c.calculateTotalEffectiveBalance(validatorParticipations)
+	tier, err := c.plan.Tier(round.Period, totalEffectiveBalanceGwei)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tier: %w", err)
+	}
+
+	dailyReward, _, _, err := c.plan.ValidatorRewards(round.Period, tier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rewards: %w", err)
+	}
+
+	roundDays := round.Period.Days()
+	networkFee := round.NetworkFee
+
+	for _, participation := range validatorParticipations {
+		participation.reward, participation.feeDeduction, err = c.calculateReward(
+			participation.TotalActiveEffectiveBalance,
+			participation.TotalRegisteredEffectiveBalance,
+			participation.RegisteredDays,
+			roundDays,
+			dailyReward,
+			networkFee.Wei(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
+		}
+	}
+
+	ownerParticipations := c.aggregateByOwner(validatorParticipations)
+	recipientParticipations := c.aggregateByRecipient(validatorParticipations)
+
+	logger.Info("Calculated rewards for round",
+		zap.String("period", round.Period.String()),
+		zap.Int64("tier", tier.MaxEffectiveBalance),
+		zap.String("network_fee", networkFee.String()),
+	)
+
+	return &roundResults{
+		validatorParticipations:   validatorParticipations,
+		ownerParticipations:       ownerParticipations,
+		recipientParticipations:   recipientParticipations,
+		totalEffectiveBalanceGwei: totalEffectiveBalanceGwei,
+		tier:                      tier,
+	}, nil
+}
+
+// calculateTotalEffectiveBalance calculates the total effective balance across all validators
+func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticipation) int64 {
+	var totalEffectiveBalanceGwei int64
+	for _, v := range validators {
+		if v.ActiveDays == 0 {
+			continue
+		}
+		totalEffectiveBalanceGwei += v.TotalActiveEffectiveBalance / int64(v.ActiveDays)
+	}
+	return totalEffectiveBalanceGwei
+}
+
+// aggregateByOwner aggregates validator participations by owner and recipient address
+func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*OwnerParticipation {
+	// Use composite key to match SQL GROUP BY behavior
+	type ownerRecipientKey struct {
+		owner     string
+		recipient string
+	}
+	aggregations := make(map[ownerRecipientKey]*OwnerParticipation)
+
+	for _, v := range validators {
+		key := ownerRecipientKey{
+			owner:     v.OwnerAddress,
+			recipient: v.RecipientAddress,
+		}
+
+		if existing, ok := aggregations[key]; ok {
+			existing.Validators++
+			existing.ActiveDays += v.ActiveDays
+			existing.RegisteredDays += v.RegisteredDays
+			existing.TotalActiveEffectiveBalance += v.TotalActiveEffectiveBalance
+			existing.TotalRegisteredEffectiveBalance += v.TotalRegisteredEffectiveBalance
+			existing.reward = new(big.Int).Add(existing.reward, v.reward)
+			existing.feeDeduction = new(big.Int).Add(existing.feeDeduction, v.feeDeduction)
+		} else {
+			aggregations[key] = &OwnerParticipation{
+				OwnerAddress:                    v.OwnerAddress,
+				RecipientAddress:                v.RecipientAddress,
+				Validators:                      1,
+				ActiveDays:                      v.ActiveDays,
+				RegisteredDays:                  v.RegisteredDays,
+				TotalActiveEffectiveBalance:     v.TotalActiveEffectiveBalance,
+				TotalRegisteredEffectiveBalance: v.TotalRegisteredEffectiveBalance,
+				reward:                          new(big.Int).Set(v.reward),
+				feeDeduction:                    new(big.Int).Set(v.feeDeduction),
+			}
+		}
+	}
+
+	result := make([]*OwnerParticipation, 0, len(aggregations))
+	for _, participation := range aggregations {
+		result = append(result, participation)
+	}
+	return result
+}
+
+// aggregateByRecipient aggregates validator participations by recipient address
+func (c *CalcCmd) aggregateByRecipient(validators []*ValidatorParticipation) []*RecipientParticipation {
+	aggregations := make(map[string]*RecipientParticipation)
+
+	for _, v := range validators {
+		recipientAddr := v.RecipientAddress
+
+		if existing, ok := aggregations[recipientAddr]; ok {
+			existing.Validators++
+			existing.ActiveDays += v.ActiveDays
+			existing.RegisteredDays += v.RegisteredDays
+			existing.TotalActiveEffectiveBalance += v.TotalActiveEffectiveBalance
+			existing.TotalRegisteredEffectiveBalance += v.TotalRegisteredEffectiveBalance
+			existing.reward = new(big.Int).Add(existing.reward, v.reward)
+			existing.feeDeduction = new(big.Int).Add(existing.feeDeduction, v.feeDeduction)
+		} else {
+			aggregations[recipientAddr] = &RecipientParticipation{
+				RecipientAddress:                recipientAddr,
+				Validators:                      1,
+				ActiveDays:                      v.ActiveDays,
+				RegisteredDays:                  v.RegisteredDays,
+				TotalActiveEffectiveBalance:     v.TotalActiveEffectiveBalance,
+				TotalRegisteredEffectiveBalance: v.TotalRegisteredEffectiveBalance,
+				reward:                          new(big.Int).Set(v.reward),
+				feeDeduction:                    new(big.Int).Set(v.feeDeduction),
+			}
+		}
+	}
+
+	result := make([]*RecipientParticipation, 0, len(aggregations))
+	for _, participation := range aggregations {
+		result = append(result, participation)
+	}
+	return result
+}
+
+// roundResults contains all the calculated participations for a round
+type roundResults struct {
+	validatorParticipations   []*ValidatorParticipation
+	ownerParticipations       []*OwnerParticipation
+	recipientParticipations   []*RecipientParticipation
+	totalEffectiveBalanceGwei int64
+	tier                      *rewards.Tier
 }
 
 func (c *CalcCmd) calculateReward(

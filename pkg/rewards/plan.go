@@ -24,6 +24,16 @@ type Plan struct {
 	Version   int           `yaml:"version"`
 	Mechanics MechanicsList `yaml:"mechanics"`
 	Rounds    Rounds        `yaml:"rounds"`
+
+	// LegacyCalculationCutoff defines the cutoff for using legacy reward calculation methods.
+	// Periods before this date use:
+	//   - SQL-aggregated data (causing fee calculation issues for multi-validator recipients)
+	//   - Daily rewards that vary by month length (monthly = annual/12, then daily = monthly/days_in_month)
+	// Periods from this date onwards use:
+	//   - Per-validator fee calculation before aggregation (correct for multi-validator recipients)
+	//   - Constant daily rewards (daily = annual/365, then monthly = daily * days_in_month)
+	// Default: 2025-08 (to preserve merkle roots for already published periods)
+	LegacyCalculationCutoff *Period `yaml:"legacy_calculation_cutoff,omitempty"`
 }
 
 // ParsePlan parses the given YAML document into a Plan.
@@ -36,6 +46,16 @@ func ParsePlan(data []byte) (*Plan, error) {
 		return nil, err
 	}
 	return &plan, nil
+}
+
+// GetLegacyCalculationCutoff returns the cutoff period for legacy calculations.
+// If not configured, returns the default of 2025-08.
+func (p *Plan) GetLegacyCalculationCutoff() Period {
+	if p.LegacyCalculationCutoff != nil {
+		return *p.LegacyCalculationCutoff
+	}
+	// Default to 2025-08 if not configured
+	return NewPeriod(2025, 8)
 }
 
 func (p *Plan) validate() error {
@@ -107,25 +127,23 @@ func (p *Plan) validate() error {
 	}
 	for i := 1; i < len(p.Rounds); i++ {
 		round := p.Rounds[i-1]
-		if round.NetworkFee != nil && round.NetworkFee.Gwei().Sign() < 0 {
+		if round.NetworkFee != nil && round.NetworkFee.Wei().Sign() < 0 {
 			return fmt.Errorf("network_fee cannot be negative in round %s", round.Period)
 		}
 		if p.Rounds[i-1].Period == p.Rounds[i].Period {
 			return fmt.Errorf("duplicate round: %s", p.Rounds[i].Period)
 		}
 	}
+
 	return nil
 }
 
-func (p *Plan) ValidatorRewards(
+// ValidatorRewardsLegacy calculates rewards with the original bug where daily rewards
+// vary by month length. Used for periods before the legacy cutoff to preserve merkle roots.
+func (p *Plan) ValidatorRewardsLegacy(
 	period Period,
-	totalEffectiveBalanceGwei int64,
+	tier *Tier,
 ) (daily, monthly, annual *big.Int, err error) {
-	tier, err := p.Tier(period, totalEffectiveBalanceGwei)
-	if err != nil {
-		err = fmt.Errorf("failed to determine tier: %w", err)
-		return
-	}
 	for _, round := range p.Rounds {
 		if round.Period == period {
 			// (validatorETHBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost
@@ -134,14 +152,37 @@ func (p *Plan) ValidatorRewards(
 			annualETH.Mul(annualETH, tier.APRBoost)
 			annual = annualETH.Wei()
 
-			// annual / 12
 			monthlyETH := precise.NewETH(nil).Quo(annualETH, precise.NewETH64(12))
 			monthly = monthlyETH.Wei()
 
-			// monthly / period.Days()
-			dailyETH := precise.NewETH(nil).
-				Quo(monthlyETH, precise.NewETH64(float64(period.Days())))
+			dailyETH := precise.NewETH(nil).Quo(monthlyETH, precise.NewETH64(float64(period.Days())))
 			daily = dailyETH.Wei()
+			return
+		}
+	}
+	err = errors.New("period not found")
+	return
+}
+
+// ValidatorRewards calculates rewards with correct daily rate (annual/365).
+// Used for periods from the legacy cutoff onwards.
+func (p *Plan) ValidatorRewards(
+	period Period,
+	tier *Tier,
+) (daily, monthly, annual *big.Int, err error) {
+	for _, round := range p.Rounds {
+		if round.Period == period {
+			// (validatorETHBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost
+			annualETH := precise.NewETH(nil).Mul(validatorETHBalance, round.ETHAPR)
+			annualETH.Quo(annualETH, round.SSVETH)
+			annualETH.Mul(annualETH, tier.APRBoost)
+			annual = annualETH.Wei()
+
+			dailyETH := precise.NewETH(nil).Quo(annualETH, precise.NewETH64(365))
+			daily = dailyETH.Wei()
+
+			monthlyETH := precise.NewETH(nil).Mul(dailyETH, precise.NewETH64(float64(period.Days())))
+			monthly = monthlyETH.Wei()
 			return
 		}
 	}
