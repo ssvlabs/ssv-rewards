@@ -16,6 +16,10 @@ func init() {
 	// Increased TLS handshake timeout for large response processing
 	transport.TLSHandshakeTimeout = 3 * time.Minute
 	
+	// Response header timeout - time to wait for server's response headers
+	// Set high to accommodate slow servers generating large responses
+	transport.ResponseHeaderTimeout = 2 * time.Minute
+	
 	// Large response buffer settings for 14MB+ responses
 	transport.WriteBufferSize = 1 << 20         // 1MB write buffer (default 4KB)
 	transport.ReadBufferSize = 1 << 20          // 1MB read buffer (default 4KB)
