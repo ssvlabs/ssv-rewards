@@ -13,13 +13,12 @@ var transport = http.DefaultTransport.(*http.Transport).Clone()
 func init() {
 	// Adjustments for SSV API's large responses (14MB+ JSON)
 	
-	// Increased TLS handshake timeout for Alpine/Docker environment
-	// Alpine's musl libc can be slower with TLS negotiation
-	transport.TLSHandshakeTimeout = 10 * time.Minute
+	// Disable timeouts entirely for Docker environment issues with SSV API
+	// The server takes 50-60s normally, but Docker networking can make it much slower
+	transport.TLSHandshakeTimeout = 0  // 0 means no timeout
 	
-	// Response header timeout - time to wait for server's response headers
-	// Set high to accommodate slow servers generating large responses
-	transport.ResponseHeaderTimeout = 2 * time.Minute
+	// No response header timeout - let it wait as long as needed
+	transport.ResponseHeaderTimeout = 0  // 0 means no timeout
 	
 	// Large response buffer settings for 14MB+ responses
 	transport.WriteBufferSize = 1 << 20         // 1MB write buffer (default 4KB)
