@@ -11,21 +11,25 @@ import (
 var transport = http.DefaultTransport.(*http.Transport).Clone()
 
 func init() {
-	// Reasonable timeout adjustments for SSV API connection issues
+	// Adjustments for SSV API's large responses (14MB+ JSON)
 	
-	// Increased TLS handshake timeout (default is 10s)
-	transport.TLSHandshakeTimeout = 90 * time.Second
+	// Increased TLS handshake timeout for large response processing
+	transport.TLSHandshakeTimeout = 3 * time.Minute
 	
-	// Connection pool settings - improved from defaults
-	transport.MaxIdleConnsPerHost = 10     // Default is 2, increased for better reuse
+	// Large response buffer settings for 14MB+ responses
+	transport.WriteBufferSize = 1 << 20         // 1MB write buffer (default 4KB)
+	transport.ReadBufferSize = 1 << 20          // 1MB read buffer (default 4KB)
+	
+	// Connection pool settings - keep minimal to avoid connection issues
+	transport.MaxIdleConnsPerHost = 2     // Reduced to avoid stale connections
 }
 
 var Client = httpretry.NewCustomClient(
 	&http.Client{
 		Transport: transport,
-		// Overall request timeout (including retries)
-		// Set high to allow for retries, individual request timeouts handled by transport
-		Timeout: 10 * time.Minute,
+		// Timeout per request attempt (not including retries)
+		// Since curl takes ~20s, give each attempt 2 minutes for large responses
+		Timeout: 2 * time.Minute,
 	},
 	httpretry.WithMaxRetryCount(10),
 
