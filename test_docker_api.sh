@@ -6,11 +6,13 @@ echo "============================================================="
 # Test 1: Simple endpoint (should be fast)
 echo -e "\n1. Testing /clusters endpoint (small response):"
 time docker run --rm alpine/curl:latest -s -o /dev/null -w "Status: %{http_code}, Size: %{size_download} bytes, Time: %{time_total}s\n" \
+  --connect-timeout 10 --max-time 30 \
   https://api.ssv.network/api/v4/mainnet/clusters
 
 # Test 2: Another simple endpoint
 echo -e "\n2. Testing /operators endpoint (medium response):"
 time docker run --rm alpine/curl:latest -s -o /dev/null -w "Status: %{http_code}, Size: %{size_download} bytes, Time: %{time_total}s\n" \
+  --connect-timeout 10 --max-time 30 \
   https://api.ssv.network/api/v4/mainnet/operators
 
 # Test 3: The problematic endpoint
