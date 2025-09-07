@@ -1,0 +1,8 @@
+services:
+  sync:
+    # Use host network mode to bypass Docker bridge networking issues with SSV API
+    # This is a workaround for Docker 28.x bridge network blocking external API calls
+    network_mode: "host"
+    environment:
+      # Override postgres connection for host networking (postgres is exposed on port 5435)
+      POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@localhost:5435/${POSTGRES_DB:-ssv-rewards}?sslmode=disable
