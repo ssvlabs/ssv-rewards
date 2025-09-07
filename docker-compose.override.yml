@@ -1,15 +1,7 @@
-version: "3.8"
-
 services:
   sync:
-    # Network optimizations for slow external API calls
-    sysctls:
-      - net.ipv4.tcp_keepalive_time=120
-      - net.ipv4.tcp_keepalive_intvl=30
-      - net.ipv4.tcp_keepalive_probes=5
-      - net.ipv4.tcp_fin_timeout=30
-    # Use host network mode to bypass Docker networking
-    network_mode: "host"  # Use host networking to avoid Docker network issues
+    # Use host network mode to bypass Docker networking issues with SSV API
+    network_mode: "host"
     environment:
-      # Override postgres connection for host networking
+      # Override postgres connection for host networking (postgres is on port 5435)
       POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@localhost:5435/${POSTGRES_DB:-ssv-rewards}?sslmode=disable
