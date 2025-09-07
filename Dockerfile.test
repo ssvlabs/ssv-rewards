@@ -1,0 +1,20 @@
+FROM golang:1.22-alpine AS build
+WORKDIR /app
+
+# Install build dependencies required for CGO (matching your Dockerfile)
+RUN apk add --no-cache musl-dev gcc g++ libstdc++
+
+# Copy test file
+COPY test_httpretry_server.go .
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Build with CGO enabled (matching your build)
+ENV CGO_ENABLED=1
+RUN go build -o /bin/test_httpretry test_httpretry_server.go
+
+FROM alpine:3.18
+COPY --from=build /bin/test_httpretry /bin/test_httpretry
+CMD ["/bin/test_httpretry"]
