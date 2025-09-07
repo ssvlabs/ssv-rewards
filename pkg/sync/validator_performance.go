@@ -255,11 +255,13 @@ func SyncValidatorPerformance(
 				if url[len(url)-1] != '/' {
 					url += "/"
 				}
-				err := requests.URL(url).
-					Client(httpretry.Client).
-					Pathf("%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
-					ToJSON(&resp).
-					Fetch(ctx)
+				// Direct HTTP request without requests library wrapper
+				fullURL := fmt.Sprintf("%s%s/validators/duty_counts/%d/%d", url, spec.Network, fromEpoch, toEpoch)
+				httpResp, err := httpretry.Client.Get(fullURL)
+				if err == nil {
+					defer httpResp.Body.Close()
+					err = json.NewDecoder(httpResp.Body).Decode(&resp)
+				}
 				if err != nil {
 					return fmt.Errorf("failed to get validator duties: %w", err)
 				}
