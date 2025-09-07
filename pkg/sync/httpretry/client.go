@@ -27,9 +27,8 @@ func init() {
 var Client = httpretry.NewCustomClient(
 	&http.Client{
 		Transport: transport,
-		// Timeout per request attempt (not including retries)
-		// Since curl takes ~20s, give each attempt 2 minutes for large responses
-		Timeout: 2 * time.Minute,
+		// No client-level timeout to allow large responses (14MB+) to complete
+		// Transport-level timeouts will handle connection issues
 	},
 	httpretry.WithMaxRetryCount(10),
 
