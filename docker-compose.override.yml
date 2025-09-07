@@ -1,7 +1,0 @@
-services:
-  sync:
-    # Use host network mode to bypass Docker networking issues with SSV API
-    network_mode: "host"
-    environment:
-      # Override postgres connection for host networking (postgres is on port 5435)
-      POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@localhost:5435/${POSTGRES_DB:-ssv-rewards}?sslmode=disable
