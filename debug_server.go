@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -78,7 +79,7 @@ func testWithTrace(url string) {
 		TLSHandshakeStart: func() {
 			fmt.Printf("[%v] TLS handshake starting\n", time.Since(start))
 		},
-		TLSHandshakeDone: func(cs http.TLSConnectionState, err error) {
+		TLSHandshakeDone: func(cs tls.ConnectionState, err error) {
 			fmt.Printf("[%v] TLS handshake done (err: %v)\n", time.Since(start), err)
 		},
 		GotFirstResponseByte: func() {
