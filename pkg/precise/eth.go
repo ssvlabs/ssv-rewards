@@ -107,3 +107,19 @@ func (e *ETH) Gwei() *big.Int {
 	copy.Int(gwei)
 	return gwei
 }
+
+func (e *ETH) SetGwei(gwei *big.Int) *ETH {
+	e.Float().SetInt(gwei)
+	e.Float().Quo(e.Float(), big.NewFloat(1e9))
+	return e
+}
+
+// ETH returns the whole ETH value as int64 (truncates decimal places).
+// For example, 32.5 ETH returns 32.
+// This is useful for CSV exports and display where whole ETH values are needed.
+func (e *ETH) ETH() int64 {
+	// Wei / 1e18 = ETH (whole number only)
+	weiPerETH := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	ethWhole := new(big.Int).Div(e.Wei(), weiPerETH)
+	return ethWhole.Int64()
+}

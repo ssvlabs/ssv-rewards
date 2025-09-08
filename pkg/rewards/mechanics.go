@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/bloxapp/ssv-rewards/pkg/precise"
 )
@@ -48,15 +47,17 @@ type Mechanics struct {
 }
 
 type Tier struct {
-	MaxEffectiveBalance int64        `yaml:"max_effective_balance"` // in ETH
+	MaxEffectiveBalance *precise.ETH `yaml:"max_effective_balance"` // in ETH
 	APRBoost            *precise.ETH `yaml:"apr_boost"`
 }
 
 type Tiers []Tier
 
-func (t Tiers) Len() int           { return len(t) }
-func (t Tiers) Less(i, j int) bool { return t[i].MaxEffectiveBalance < t[j].MaxEffectiveBalance }
-func (t Tiers) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
+func (t Tiers) Len() int { return len(t) }
+func (t Tiers) Less(i, j int) bool {
+	return t[i].MaxEffectiveBalance.Wei().Cmp(t[j].MaxEffectiveBalance.Wei()) < 0
+}
+func (t Tiers) Swap(i, j int) { t[i], t[j] = t[j], t[i] }
 
 type MechanicsList []Mechanics
 
@@ -79,6 +80,6 @@ func (m MechanicsList) At(period Period) (*Mechanics, error) {
 
 func (m MechanicsList) Len() int { return len(m) }
 func (m MechanicsList) Less(i, j int) bool {
-	return time.Time(m[i].Since).Before(time.Time(m[j].Since))
+	return m[i].Since.Before(m[j].Since)
 }
 func (m MechanicsList) Swap(i, j int) { m[i], m[j] = m[j], m[i] }

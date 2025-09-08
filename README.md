@@ -105,6 +105,19 @@ rounds:
     # If omitted, no fee deduction is applied.
     network_fee: 0.1  # Network fee in SSV
   # ...
+
+# Inflation control mechanism (DIP-X)
+# Controls the maximum SSV tokens that can be distributed per month
+inflation_control:
+  annual_percentage: 0.15      # 15% annual inflation cap
+  enforcement_start: 2025-09   # September 2025 - when cap enforcement begins
+  interim_monthly: 200000      # 200,000 SSV tokens per month until first supply snapshot
+  supply_snapshots:            # Must be sorted by period (ascending)
+    # Interim cap applies until this period (not including)
+    - period: 2026-01
+      supply: 16000000  # Example: 16M SSV supply for 2026 calculations
+    - period: 2027-01
+      supply: 18000000  # Example: 18M SSV supply for 2027 calculations
 ```
 
 ## Usage
