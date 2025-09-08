@@ -412,20 +412,20 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		logFields := []zap.Field{
 			zap.String("period", round.Period.String()),
-			zap.String("total_effective_balance", results.totalEffectiveBalance.String()),
-			zap.String("tier", results.tier.MaxEffectiveBalance.String()),
-			zap.String("network_fee", round.NetworkFee.String()),
-			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).String()),
-			zap.String("monthly_reward", precise.NewETH(nil).SetWei(monthlyReward).String()),
-			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).String()),
+			zap.String("total_effective_balance", results.totalEffectiveBalance.Display()),
+			zap.String("tier", results.tier.MaxEffectiveBalance.Display()),
+			zap.String("network_fee", round.NetworkFee.Display()),
+			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).Display()),
+			zap.String("monthly_reward", precise.NewETH(nil).SetWei(monthlyReward).Display()),
+			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).Display()),
 		}
 
 		if results.inflationCap != nil {
 			logFields = append(logFields,
-				zap.String("inflation_cap", results.inflationCap.String()),
+				zap.String("inflation_cap", results.inflationCap.Display()),
 				zap.Float64("scaling_ratio", results.scalingRatio),
-				zap.String("original_rewards", results.originalRewards.String()),
-				zap.String("final_rewards", results.finalRewards.String()),
+				zap.String("original_rewards", results.originalRewards.Display()),
+				zap.String("final_rewards", results.finalRewards.Display()),
 			)
 		}
 

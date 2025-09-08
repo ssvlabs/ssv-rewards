@@ -3,6 +3,7 @@ package precise
 import (
 	"encoding/json"
 	"math/big"
+	"strings"
 )
 
 const (
@@ -59,6 +60,17 @@ func (e *ETH) Sub(a, b *ETH) *ETH {
 
 func (e *ETH) String() string {
 	return e.Float().Text('f', decimals)
+}
+
+// Display returns a human-readable string with trailing zeros removed
+func (e *ETH) Display() string {
+	s := e.String()
+	// Remove trailing zeros after decimal point
+	if strings.Contains(s, ".") {
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimRight(s, ".")
+	}
+	return s
 }
 
 func (e *ETH) MarshalText() ([]byte, error) {
