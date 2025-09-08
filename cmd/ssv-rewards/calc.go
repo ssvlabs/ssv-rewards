@@ -572,10 +572,7 @@ func (c *CalcCmd) processRoundLegacy(
 		}
 	}
 
-	// Track original rewards
 	originalRewards := precise.NewETH(nil).SetWei(new(big.Int).Set(totalRoundRewards))
-
-	// Evaluate if inflation cap is exceeded and get final rewards
 	needsScaling, finalRewards, inflationCap, err := c.plan.EvaluateInflationCap(round.Period, originalRewards)
 	if err != nil {
 		return nil, err
@@ -583,8 +580,6 @@ func (c *CalcCmd) processRoundLegacy(
 
 	if needsScaling {
 		inflationCapWei := inflationCap.Wei()
-
-		// Scale all rewards proportionally
 		for _, p := range validatorParticipations {
 			p.reward.Mul(p.reward, inflationCapWei)
 			p.reward.Div(p.reward, totalRoundRewards)
@@ -657,10 +652,7 @@ func (c *CalcCmd) processRound(
 		totalRoundRewards.Add(totalRoundRewards, participation.reward)
 	}
 
-	// Track original rewards
 	originalRewards := precise.NewETH(nil).SetWei(new(big.Int).Set(totalRoundRewards))
-
-	// Evaluate if inflation cap is exceeded and get final rewards
 	needsScaling, finalRewards, inflationCap, err := c.plan.EvaluateInflationCap(round.Period, originalRewards)
 	if err != nil {
 		return nil, err
@@ -669,8 +661,6 @@ func (c *CalcCmd) processRound(
 	// Apply scaling if needed
 	if needsScaling {
 		inflationCapWei := inflationCap.Wei()
-
-		// Scale all validator rewards proportionally
 		for _, p := range validatorParticipations {
 			p.reward.Mul(p.reward, inflationCapWei)
 			p.reward.Div(p.reward, totalRoundRewards)
