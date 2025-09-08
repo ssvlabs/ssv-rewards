@@ -99,3 +99,28 @@ func (ic *InflationControl) GetPeriodInflationCap(period Period) (*precise.ETH, 
 	monthlyCap := precise.NewETH(nil).SetWei(monthlyCapWei)
 	return monthlyCap, nil
 }
+
+// EvaluateInflationCap evaluates if inflation cap is exceeded for a given period and determines final rewards
+// Returns whether scaling is needed, the final rewards amount, and the inflation cap
+func (ic *InflationControl) EvaluateInflationCap(
+	period Period,
+	totalRoundRewards *precise.ETH,
+) (needsScaling bool, finalRewards *precise.ETH, inflationCap *precise.ETH, err error) {
+	inflationCap, err = ic.GetPeriodInflationCap(period)
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("failed to get inflation cap: %w", err)
+	}
+
+	// Default: final rewards equal original rewards
+	finalRewards = totalRoundRewards
+
+	if inflationCap != nil && totalRoundRewards != nil {
+		if totalRoundRewards.Wei().Cmp(inflationCap.Wei()) > 0 {
+			needsScaling = true
+			// If scaling needed, final rewards will be capped
+			finalRewards = inflationCap
+		}
+	}
+
+	return needsScaling, finalRewards, inflationCap, nil
+}

@@ -355,3 +355,16 @@ func (p *Plan) GetPeriodInflationCap(period Period) (*precise.ETH, error) {
 	}
 	return p.InflationControl.GetPeriodInflationCap(period)
 }
+
+// EvaluateInflationCap delegates to InflationControl if configured
+// Returns whether scaling is needed, the final rewards amount, and the inflation cap
+func (p *Plan) EvaluateInflationCap(
+	period Period,
+	totalRoundRewards *precise.ETH,
+) (needsScaling bool, finalRewards *precise.ETH, inflationCap *precise.ETH, err error) {
+	if p.InflationControl == nil {
+		// No inflation control configured, return original rewards
+		return false, totalRoundRewards, nil, nil
+	}
+	return p.InflationControl.EvaluateInflationCap(period, totalRoundRewards)
+}

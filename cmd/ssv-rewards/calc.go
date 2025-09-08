@@ -421,9 +421,23 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		if results.inflationCap != nil {
+			// Calculate scaling ratio for logging
+			scalingRatio := 1.0
+			if results.originalRewards != nil && results.finalRewards != nil {
+				originalWei := results.originalRewards.Wei()
+				finalWei := results.finalRewards.Wei()
+				if originalWei.Sign() > 0 {
+					scalingRatioFloat := new(big.Float).Quo(
+						new(big.Float).SetInt(finalWei),
+						new(big.Float).SetInt(originalWei),
+					)
+					scalingRatio, _ = scalingRatioFloat.Float64()
+				}
+			}
+
 			logFields = append(logFields,
 				zap.String("inflation_cap", results.inflationCap.Display()),
-				zap.Float64("scaling_ratio", results.scalingRatio),
+				zap.Float64("scaling_ratio", scalingRatio),
 				zap.String("original_rewards", results.originalRewards.Display()),
 				zap.String("final_rewards", results.finalRewards.Display()),
 			)
@@ -514,6 +528,7 @@ func (c *CalcCmd) processRoundLegacy(
 	roundDays := round.Period.Days()
 	networkFee := round.NetworkFee
 
+	totalRoundRewards := big.NewInt(0)
 	for _, participation := range validatorParticipations {
 		participation.reward, participation.feeDeduction, err = c.calculateReward(
 			participation.TotalActiveEffectiveBalance,
@@ -526,6 +541,7 @@ func (c *CalcCmd) processRoundLegacy(
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
 		}
+		totalRoundRewards.Add(totalRoundRewards, participation.reward)
 	}
 
 	for _, participation := range ownerParticipations {
@@ -556,12 +572,44 @@ func (c *CalcCmd) processRoundLegacy(
 		}
 	}
 
+	// Track original rewards
+	originalRewards := precise.NewETH(nil).SetWei(new(big.Int).Set(totalRoundRewards))
+
+	// Evaluate if inflation cap is exceeded and get final rewards
+	needsScaling, finalRewards, inflationCap, err := c.plan.EvaluateInflationCap(round.Period, originalRewards)
+	if err != nil {
+		return nil, err
+	}
+
+	if needsScaling {
+		inflationCapWei := inflationCap.Wei()
+
+		// Scale all rewards proportionally
+		for _, p := range validatorParticipations {
+			p.reward.Mul(p.reward, inflationCapWei)
+			p.reward.Div(p.reward, totalRoundRewards)
+		}
+
+		for _, p := range ownerParticipations {
+			p.reward.Mul(p.reward, inflationCapWei)
+			p.reward.Div(p.reward, totalRoundRewards)
+		}
+
+		for _, p := range recipientParticipations {
+			p.reward.Mul(p.reward, inflationCapWei)
+			p.reward.Div(p.reward, totalRoundRewards)
+		}
+	}
+
 	return &roundResults{
 		validatorParticipations: validatorParticipations,
 		ownerParticipations:     ownerParticipations,
 		recipientParticipations: recipientParticipations,
 		totalEffectiveBalance:   totalEffectiveBalance,
 		tier:                    tier,
+		originalRewards:         originalRewards,
+		finalRewards:            finalRewards,
+		inflationCap:            inflationCap,
 	}, nil
 }
 
@@ -609,31 +657,23 @@ func (c *CalcCmd) processRound(
 		totalRoundRewards.Add(totalRoundRewards, participation.reward)
 	}
 
-	scalingRatio := 1.0
-	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
-	finalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
+	// Track original rewards
+	originalRewards := precise.NewETH(nil).SetWei(new(big.Int).Set(totalRoundRewards))
 
-	inflationCap, err := c.plan.GetPeriodInflationCap(round.Period)
+	// Evaluate if inflation cap is exceeded and get final rewards
+	needsScaling, finalRewards, inflationCap, err := c.plan.EvaluateInflationCap(round.Period, originalRewards)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get inflation cap: %w", err)
+		return nil, err
 	}
 
-	if inflationCap != nil {
+	// Apply scaling if needed
+	if needsScaling {
 		inflationCapWei := inflationCap.Wei()
 
-		if totalRoundRewards.Cmp(inflationCapWei) > 0 {
-			for _, p := range validatorParticipations {
-				p.reward.Mul(p.reward, inflationCapWei)
-				p.reward.Div(p.reward, totalRoundRewards)
-			}
-
-			finalRewards = inflationCap
-
-			scalingRatioFloat := new(big.Float).Quo(
-				new(big.Float).SetInt(inflationCapWei),
-				new(big.Float).SetInt(totalRoundRewards),
-			)
-			scalingRatio, _ = scalingRatioFloat.Float64()
+		// Scale all validator rewards proportionally
+		for _, p := range validatorParticipations {
+			p.reward.Mul(p.reward, inflationCapWei)
+			p.reward.Div(p.reward, totalRoundRewards)
 		}
 	}
 
@@ -646,7 +686,6 @@ func (c *CalcCmd) processRound(
 		recipientParticipations: recipientParticipations,
 		totalEffectiveBalance:   totalEffectiveBalance,
 		tier:                    tier,
-		scalingRatio:            scalingRatio,
 		finalRewards:            finalRewards,
 		originalRewards:         originalRewards,
 		inflationCap:            inflationCap,
@@ -750,7 +789,6 @@ type roundResults struct {
 	recipientParticipations []*RecipientParticipation
 	totalEffectiveBalance   *precise.ETH
 	tier                    *rewards.Tier
-	scalingRatio            float64      // 1.0 if no scaling, <1.0 if scaled
 	finalRewards            *precise.ETH // Final rewards distributed (after scaling)
 	originalRewards         *precise.ETH // Original rewards before scaling
 	inflationCap            *precise.ETH // Inflation cap for this period (nil if no cap)

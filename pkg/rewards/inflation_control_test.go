@@ -371,3 +371,123 @@ func TestPlan_GetPeriodInflationCap(t *testing.T) {
 		})
 	}
 }
+
+func TestInflationControl_EvaluateInflationCap(t *testing.T) {
+	ic := &InflationControl{
+		AnnualInflationLimit: 0.15,
+		EnforcementStart:     NewPeriod(2025, 9),
+		InterimMonthlyCap:    precise.NewETH64(200000),
+		SupplySnapshots: []SupplySnapshot{
+			{Period: NewPeriod(2026, 1), Supply: precise.NewETH64(16000000)},
+		},
+	}
+
+	tests := []struct {
+		name                 string
+		period               Period
+		totalRoundRewards    *precise.ETH
+		expectedNeedsScaling bool
+		expectedFinalRewards *precise.ETH
+		expectedInflationCap *precise.ETH
+	}{
+		{
+			name:                 "before enforcement - no cap",
+			period:               NewPeriod(2025, 8),
+			totalRoundRewards:    precise.NewETH64(300000),
+			expectedNeedsScaling: false,
+			expectedFinalRewards: precise.NewETH64(300000),
+			expectedInflationCap: nil,
+		},
+		{
+			name:                 "under cap - no scaling",
+			period:               NewPeriod(2025, 9),
+			totalRoundRewards:    precise.NewETH64(150000),
+			expectedNeedsScaling: false,
+			expectedFinalRewards: precise.NewETH64(150000),
+			expectedInflationCap: precise.NewETH64(200000),
+		},
+		{
+			name:                 "exactly at cap - no scaling",
+			period:               NewPeriod(2025, 9),
+			totalRoundRewards:    precise.NewETH64(200000),
+			expectedNeedsScaling: false,
+			expectedFinalRewards: precise.NewETH64(200000),
+			expectedInflationCap: precise.NewETH64(200000),
+		},
+		{
+			name:                 "over cap - needs scaling",
+			period:               NewPeriod(2025, 9),
+			totalRoundRewards:    precise.NewETH64(300000),
+			expectedNeedsScaling: true,
+			expectedFinalRewards: precise.NewETH64(200000),
+			expectedInflationCap: precise.NewETH64(200000),
+		},
+		{
+			name:                 "nil rewards - no scaling",
+			period:               NewPeriod(2025, 9),
+			totalRoundRewards:    nil,
+			expectedNeedsScaling: false,
+			expectedFinalRewards: nil,
+			expectedInflationCap: precise.NewETH64(200000),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			needsScaling, finalRewards, inflationCap, err := ic.EvaluateInflationCap(tt.period, tt.totalRoundRewards)
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedNeedsScaling, needsScaling)
+			requireETHEqual(t, tt.expectedFinalRewards, finalRewards)
+			requireETHEqual(t, tt.expectedInflationCap, inflationCap)
+		})
+	}
+}
+
+func TestPlan_EvaluateInflationCap(t *testing.T) {
+	tests := []struct {
+		name                 string
+		plan                 *Plan
+		period               Period
+		totalRoundRewards    *precise.ETH
+		expectedNeedsScaling bool
+		expectedFinalRewards *precise.ETH
+		expectedInflationCap *precise.ETH
+	}{
+		{
+			name: "no inflation control - no scaling",
+			plan: &Plan{
+				InflationControl: nil,
+			},
+			period:               NewPeriod(2025, 9),
+			totalRoundRewards:    precise.NewETH64(300000),
+			expectedNeedsScaling: false,
+			expectedFinalRewards: precise.NewETH64(300000),
+			expectedInflationCap: nil,
+		},
+		{
+			name: "with inflation control - over cap",
+			plan: &Plan{
+				InflationControl: &InflationControl{
+					AnnualInflationLimit: 0.15,
+					EnforcementStart:     NewPeriod(2025, 9),
+					InterimMonthlyCap:    precise.NewETH64(200000),
+				},
+			},
+			period:               NewPeriod(2025, 9),
+			totalRoundRewards:    precise.NewETH64(300000),
+			expectedNeedsScaling: true,
+			expectedFinalRewards: precise.NewETH64(200000),
+			expectedInflationCap: precise.NewETH64(200000),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			needsScaling, finalRewards, inflationCap, err := tt.plan.EvaluateInflationCap(tt.period, tt.totalRoundRewards)
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedNeedsScaling, needsScaling)
+			requireETHEqual(t, tt.expectedFinalRewards, finalRewards)
+			requireETHEqual(t, tt.expectedInflationCap, inflationCap)
+		})
+	}
+}
