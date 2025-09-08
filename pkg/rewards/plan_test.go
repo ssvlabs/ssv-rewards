@@ -1,7 +1,6 @@
 package rewards
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -197,7 +196,7 @@ func TestPlan_Validate(t *testing.T) {
 							MinAttestationsPerDay: 1,
 							MinDecidedsPerDay:     1,
 						},
-						Tiers: Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}, {MaxEffectiveBalance: precise.NewETH64(math.MaxFloat64), APRBoost: mustParseETH("0.1")}}},
+						Tiers: Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}, {MaxEffectiveBalance: precise.NewETH64(1000000000), APRBoost: mustParseETH("0.1")}}},
 				},
 			},
 			expectedErr: "missing rounds",
@@ -212,7 +211,7 @@ func TestPlan_Validate(t *testing.T) {
 							MinAttestationsPerDay: 1,
 							MinDecidedsPerDay:     1,
 						},
-						Tiers: Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}, {MaxEffectiveBalance: precise.NewETH64(math.MaxFloat64), APRBoost: mustParseETH("0.1")}},
+						Tiers: Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}, {MaxEffectiveBalance: precise.NewETH64(1000000000), APRBoost: mustParseETH("0.1")}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 2)}, {Period: NewPeriod(2020, 1)}},
@@ -229,7 +228,7 @@ func TestPlan_Validate(t *testing.T) {
 							MinAttestationsPerDay: 1,
 							MinDecidedsPerDay:     1,
 						},
-						Tiers: Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}, {MaxEffectiveBalance: precise.NewETH64(math.MaxFloat64), APRBoost: mustParseETH("0.1")}},
+						Tiers: Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}, {MaxEffectiveBalance: precise.NewETH64(1000000000), APRBoost: mustParseETH("0.1")}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}, {Period: NewPeriod(2020, 1)}},
@@ -243,7 +242,7 @@ func TestPlan_Validate(t *testing.T) {
 					{
 						Since:    NewPeriod(2020, 1),
 						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
-						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}, {MaxEffectiveBalance: precise.NewETH64(math.MaxFloat64), APRBoost: mustParseETH("0.1")}},
+						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}, {MaxEffectiveBalance: precise.NewETH64(1000000000), APRBoost: mustParseETH("0.1")}},
 					},
 				},
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}, {Period: NewPeriod(2020, 2)}},
