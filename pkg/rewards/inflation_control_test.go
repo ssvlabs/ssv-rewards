@@ -18,9 +18,9 @@ func TestInflationControl_Validate(t *testing.T) {
 		{
 			name: "valid inflation cap",
 			ic: &InflationControl{
-				AnnualPercentage: 0.15,
-				EnforcementStart: NewPeriod(2025, 9),
-				InterimMonthly:   precise.NewETH64(200000),
+				AnnualInflationLimit: 0.15,
+				EnforcementStart:     NewPeriod(2025, 9),
+				InterimMonthlyCap:    precise.NewETH64(200000),
 				SupplySnapshots: []SupplySnapshot{
 					{Period: NewPeriod(2026, 1), Supply: precise.NewETH64(16000000)},
 					{Period: NewPeriod(2027, 1), Supply: precise.NewETH64(18000000)},
@@ -30,52 +30,52 @@ func TestInflationControl_Validate(t *testing.T) {
 		{
 			name: "invalid annual percentage - zero",
 			ic: &InflationControl{
-				AnnualPercentage: 0,
-				EnforcementStart: NewPeriod(2025, 9),
-				InterimMonthly:   precise.NewETH64(200000),
+				AnnualInflationLimit: 0,
+				EnforcementStart:     NewPeriod(2025, 9),
+				InterimMonthlyCap:    precise.NewETH64(200000),
 			},
-			expectedErr: "annual_percentage must be between 0 and 1",
+			expectedErr: "annual_inflation_limit must be between 0 and 1",
 		},
 		{
 			name: "invalid annual percentage - over 1",
 			ic: &InflationControl{
-				AnnualPercentage: 1.5,
-				EnforcementStart: NewPeriod(2025, 9),
-				InterimMonthly:   precise.NewETH64(200000),
+				AnnualInflationLimit: 1.5,
+				EnforcementStart:     NewPeriod(2025, 9),
+				InterimMonthlyCap:    precise.NewETH64(200000),
 			},
-			expectedErr: "annual_percentage must be between 0 and 1",
+			expectedErr: "annual_inflation_limit must be between 0 and 1",
 		},
 		{
 			name: "missing enforcement start",
 			ic: &InflationControl{
-				AnnualPercentage: 0.15,
-				InterimMonthly:   precise.NewETH64(200000),
+				AnnualInflationLimit: 0.15,
+				InterimMonthlyCap:    precise.NewETH64(200000),
 			},
 			expectedErr: "enforcement_start is required",
 		},
 		{
 			name: "missing interim monthly",
 			ic: &InflationControl{
-				AnnualPercentage: 0.15,
-				EnforcementStart: NewPeriod(2025, 9),
+				AnnualInflationLimit: 0.15,
+				EnforcementStart:     NewPeriod(2025, 9),
 			},
-			expectedErr: "interim_monthly must be positive",
+			expectedErr: "interim_monthly_cap must be positive",
 		},
 		{
 			name: "negative interim monthly",
 			ic: &InflationControl{
-				AnnualPercentage: 0.15,
-				EnforcementStart: NewPeriod(2025, 9),
-				InterimMonthly:   precise.NewETH64(-100),
+				AnnualInflationLimit: 0.15,
+				EnforcementStart:     NewPeriod(2025, 9),
+				InterimMonthlyCap:    precise.NewETH64(-100),
 			},
-			expectedErr: "interim_monthly must be positive",
+			expectedErr: "interim_monthly_cap must be positive",
 		},
 		{
 			name: "snapshot before enforcement start",
 			ic: &InflationControl{
-				AnnualPercentage: 0.15,
-				EnforcementStart: NewPeriod(2025, 9),
-				InterimMonthly:   precise.NewETH64(200000),
+				AnnualInflationLimit: 0.15,
+				EnforcementStart:     NewPeriod(2025, 9),
+				InterimMonthlyCap:    precise.NewETH64(200000),
 				SupplySnapshots: []SupplySnapshot{
 					{Period: NewPeriod(2025, 8), Supply: precise.NewETH64(16000000)},
 				},
@@ -85,9 +85,9 @@ func TestInflationControl_Validate(t *testing.T) {
 		{
 			name: "unsorted snapshots",
 			ic: &InflationControl{
-				AnnualPercentage: 0.15,
-				EnforcementStart: NewPeriod(2025, 9),
-				InterimMonthly:   precise.NewETH64(200000),
+				AnnualInflationLimit: 0.15,
+				EnforcementStart:     NewPeriod(2025, 9),
+				InterimMonthlyCap:    precise.NewETH64(200000),
 				SupplySnapshots: []SupplySnapshot{
 					{Period: NewPeriod(2027, 1), Supply: precise.NewETH64(18000000)},
 					{Period: NewPeriod(2026, 1), Supply: precise.NewETH64(16000000)},
@@ -98,9 +98,9 @@ func TestInflationControl_Validate(t *testing.T) {
 		{
 			name: "duplicate snapshots",
 			ic: &InflationControl{
-				AnnualPercentage: 0.15,
-				EnforcementStart: NewPeriod(2025, 9),
-				InterimMonthly:   precise.NewETH64(200000),
+				AnnualInflationLimit: 0.15,
+				EnforcementStart:     NewPeriod(2025, 9),
+				InterimMonthlyCap:    precise.NewETH64(200000),
 				SupplySnapshots: []SupplySnapshot{
 					{Period: NewPeriod(2026, 1), Supply: precise.NewETH64(16000000)},
 					{Period: NewPeriod(2026, 1), Supply: precise.NewETH64(17000000)},
@@ -111,9 +111,9 @@ func TestInflationControl_Validate(t *testing.T) {
 		{
 			name: "negative supply",
 			ic: &InflationControl{
-				AnnualPercentage: 0.15,
-				EnforcementStart: NewPeriod(2025, 9),
-				InterimMonthly:   precise.NewETH64(200000),
+				AnnualInflationLimit: 0.15,
+				EnforcementStart:     NewPeriod(2025, 9),
+				InterimMonthlyCap:    precise.NewETH64(200000),
 				SupplySnapshots: []SupplySnapshot{
 					{Period: NewPeriod(2026, 1), Supply: precise.NewETH64(-16000000)},
 				},
@@ -123,9 +123,9 @@ func TestInflationControl_Validate(t *testing.T) {
 		{
 			name: "nil supply",
 			ic: &InflationControl{
-				AnnualPercentage: 0.15,
-				EnforcementStart: NewPeriod(2025, 9),
-				InterimMonthly:   precise.NewETH64(200000),
+				AnnualInflationLimit: 0.15,
+				EnforcementStart:     NewPeriod(2025, 9),
+				InterimMonthlyCap:    precise.NewETH64(200000),
 				SupplySnapshots: []SupplySnapshot{
 					{Period: NewPeriod(2026, 1), Supply: nil},
 				},
@@ -161,9 +161,9 @@ func requireETHEqual(t *testing.T, expected, actual *precise.ETH) {
 
 func TestInflationControl_GetPeriodInflationCap(t *testing.T) {
 	ic := &InflationControl{
-		AnnualPercentage: 0.15,
-		EnforcementStart: NewPeriod(2025, 9),
-		InterimMonthly:   precise.NewETH64(200000),
+		AnnualInflationLimit: 0.15,
+		EnforcementStart:     NewPeriod(2025, 9),
+		InterimMonthlyCap:    precise.NewETH64(200000),
 		SupplySnapshots: []SupplySnapshot{
 			{Period: NewPeriod(2026, 1), Supply: precise.NewETH64(16000000)},
 			{Period: NewPeriod(2027, 1), Supply: precise.NewETH64(18000000)},
@@ -223,10 +223,10 @@ func TestInflationControl_GetPeriodInflationCap(t *testing.T) {
 
 func TestInflationControl_GetPeriodInflationCap_NoSnapshots(t *testing.T) {
 	ic := &InflationControl{
-		AnnualPercentage: 0.15,
-		EnforcementStart: NewPeriod(2025, 9),
-		InterimMonthly:   precise.NewETH64(200000),
-		SupplySnapshots:  []SupplySnapshot{}, // No snapshots
+		AnnualInflationLimit: 0.15,
+		EnforcementStart:     NewPeriod(2025, 9),
+		InterimMonthlyCap:    precise.NewETH64(200000),
+		SupplySnapshots:      []SupplySnapshot{}, // No snapshots
 	}
 
 	tests := []struct {
@@ -278,9 +278,9 @@ rounds:
     ssv_eth: 0.01
 
 inflation_control:
-  annual_percentage: 0.15
+  annual_inflation_limit: 0.15
   enforcement_start: 2025-09
-  interim_monthly: 200000
+  interim_monthly_cap: 200000
   supply_snapshots:
     - period: 2026-01
       supply: 16000000
@@ -309,9 +309,9 @@ inflation_control:
 			},
 		},
 		InflationControl: &InflationControl{
-			AnnualPercentage: 0.15,
-			EnforcementStart: NewPeriod(2025, 9),
-			InterimMonthly:   precise.NewETH64(200000),
+			AnnualInflationLimit: 0.15,
+			EnforcementStart:     NewPeriod(2025, 9),
+			InterimMonthlyCap:    precise.NewETH64(200000),
 			SupplySnapshots: []SupplySnapshot{
 				{Period: NewPeriod(2026, 1), Supply: precise.NewETH64(16000000)},
 				{Period: NewPeriod(2027, 1), Supply: precise.NewETH64(18000000)},
@@ -323,9 +323,9 @@ inflation_control:
 	require.NoError(t, err)
 	require.NotNil(t, rewardPlan)
 	require.NotNil(t, rewardPlan.InflationControl)
-	require.Equal(t, expected.InflationControl.AnnualPercentage, rewardPlan.InflationControl.AnnualPercentage)
+	require.Equal(t, expected.InflationControl.AnnualInflationLimit, rewardPlan.InflationControl.AnnualInflationLimit)
 	require.Equal(t, expected.InflationControl.EnforcementStart.String(), rewardPlan.InflationControl.EnforcementStart.String())
-	require.Equal(t, 0, expected.InflationControl.InterimMonthly.Wei().Cmp(rewardPlan.InflationControl.InterimMonthly.Wei()))
+	require.Equal(t, 0, expected.InflationControl.InterimMonthlyCap.Wei().Cmp(rewardPlan.InflationControl.InterimMonthlyCap.Wei()))
 	require.Equal(t, len(expected.InflationControl.SupplySnapshots), len(rewardPlan.InflationControl.SupplySnapshots))
 
 	for i, snapshot := range expected.InflationControl.SupplySnapshots {
@@ -353,9 +353,9 @@ func TestPlan_GetPeriodInflationCap(t *testing.T) {
 			name: "with inflation cap",
 			plan: &Plan{
 				InflationControl: &InflationControl{
-					AnnualPercentage: 0.15,
-					EnforcementStart: NewPeriod(2025, 9),
-					InterimMonthly:   precise.NewETH64(200000),
+					AnnualInflationLimit: 0.15,
+					EnforcementStart:     NewPeriod(2025, 9),
+					InterimMonthlyCap:    precise.NewETH64(200000),
 				},
 			},
 			period:      NewPeriod(2025, 9),

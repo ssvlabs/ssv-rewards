@@ -410,7 +410,6 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			return fmt.Errorf("failed to get rewards: %w", err)
 		}
 
-		// Build log fields
 		logFields := []zap.Field{
 			zap.String("period", round.Period.String()),
 			zap.String("total_effective_balance", results.totalEffectiveBalance.String()),
@@ -421,13 +420,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).String()),
 		}
 
-		// Add inflation control fields only when cap enforcement is active
 		if results.inflationCap != nil {
 			logFields = append(logFields,
 				zap.String("inflation_cap", results.inflationCap.String()),
 				zap.Float64("scaling_ratio", results.scalingRatio),
-				zap.String("original_rewards", results.originalRewardsWei.String()),
-				zap.String("final_rewards", results.finalRewardsWei.String()),
+				zap.String("original_rewards", results.originalRewards.String()),
+				zap.String("final_rewards", results.finalRewards.String()),
 			)
 		}
 
@@ -611,34 +609,26 @@ func (c *CalcCmd) processRound(
 		totalRoundRewards.Add(totalRoundRewards, participation.reward)
 	}
 
-	// Initialize scaling variables
 	scalingRatio := 1.0
 	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
 	finalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
 
-	// Check and apply inflation cap if configured
 	inflationCap, err := c.plan.GetPeriodInflationCap(round.Period)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get inflation cap: %w", err)
 	}
 
 	if inflationCap != nil {
-		// Get the cap in Wei
 		inflationCapWei := inflationCap.Wei()
 
-		// Apply scaling if cap exceeded
 		if totalRoundRewards.Cmp(inflationCapWei) > 0 {
-			// Scale all validator rewards proportionally using exact integer math
-			// newReward = (oldReward * cap) / totalRewards
 			for _, p := range validatorParticipations {
 				p.reward.Mul(p.reward, inflationCapWei)
 				p.reward.Div(p.reward, totalRoundRewards)
 			}
 
-			// The final total after scaling is the cap
 			finalRewards = inflationCap
 
-			// Calculate scaling ratio for reporting
 			scalingRatioFloat := new(big.Float).Quo(
 				new(big.Float).SetInt(inflationCapWei),
 				new(big.Float).SetInt(totalRoundRewards),
@@ -657,13 +647,12 @@ func (c *CalcCmd) processRound(
 		totalEffectiveBalance:   totalEffectiveBalance,
 		tier:                    tier,
 		scalingRatio:            scalingRatio,
-		finalRewardsWei:         finalRewards,
-		originalRewardsWei:      originalRewards,
+		finalRewards:            finalRewards,
+		originalRewards:         originalRewards,
 		inflationCap:            inflationCap,
 	}, nil
 }
 
-// calculateTotalEffectiveBalance calculates the total effective balance across all validators
 func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticipation) *precise.ETH {
 	var totalEffectiveBalanceGwei int64
 	for _, v := range validators {
@@ -676,7 +665,6 @@ func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticip
 	return precise.NewETH(nil).SetGwei(big.NewInt(totalEffectiveBalanceGwei))
 }
 
-// aggregateByOwner aggregates validator participations by owner and recipient address
 func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*OwnerParticipation {
 	type ownerRecipientKey struct {
 		owner     string
@@ -720,7 +708,6 @@ func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*Owne
 	return result
 }
 
-// aggregateByRecipient aggregates validator participations by recipient address
 func (c *CalcCmd) aggregateByRecipient(validators []*ValidatorParticipation) []*RecipientParticipation {
 	aggregations := make(map[string]*RecipientParticipation)
 
@@ -764,8 +751,8 @@ type roundResults struct {
 	totalEffectiveBalance   *precise.ETH
 	tier                    *rewards.Tier
 	scalingRatio            float64      // 1.0 if no scaling, <1.0 if scaled
-	finalRewardsWei         *precise.ETH // Final rewards distributed (after scaling)
-	originalRewardsWei      *precise.ETH // Original rewards before scaling
+	finalRewards            *precise.ETH // Final rewards distributed (after scaling)
+	originalRewards         *precise.ETH // Original rewards before scaling
 	inflationCap            *precise.ETH // Inflation cap for this period (nil if no cap)
 }
 
