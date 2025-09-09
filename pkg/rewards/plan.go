@@ -58,11 +58,6 @@ func ParsePlan(data []byte) (*Plan, error) {
 	return &plan, nil
 }
 
-// GetLegacyCalculationCutoff returns the cutoff period for legacy calculations.
-func (p *Plan) GetLegacyCalculationCutoff() Period {
-	return p.LegacyCalculationCutoff
-}
-
 func (p *Plan) validate() error {
 	// Validate Mechanics.
 	if len(p.Mechanics) == 0 {

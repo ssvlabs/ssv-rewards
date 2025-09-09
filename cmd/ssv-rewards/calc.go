@@ -173,8 +173,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		totalByRecipient = map[string]*RecipientParticipation{}
 	)
 
-	// Get the legacy calculation cutoff (defaults to 2025-08)
-	legacyCalculationCutoff := c.plan.GetLegacyCalculationCutoff()
+	legacyCalculationCutoff := c.plan.LegacyCalculationCutoff
 
 	for _, round := range completeRounds {
 		mechanics, err := c.plan.Mechanics.At(round.Period)
@@ -422,16 +421,12 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 
 		if round.InflationCap != nil {
 			scalingRatio := 1.0
-			if results.originalRewards != nil && results.finalRewards != nil {
-				originalWei := results.originalRewards.Wei()
-				finalWei := results.finalRewards.Wei()
-				if originalWei.Sign() > 0 {
-					scalingRatioFloat := new(big.Float).Quo(
-						new(big.Float).SetInt(finalWei),
-						new(big.Float).SetInt(originalWei),
-					)
-					scalingRatio, _ = scalingRatioFloat.Float64()
-				}
+			if results.originalRewards.Wei().Sign() > 0 {
+				scalingRatioFloat := new(big.Float).Quo(
+					new(big.Float).SetInt(results.finalRewards.Wei()),
+					new(big.Float).SetInt(results.originalRewards.Wei()),
+				)
+				scalingRatio, _ = scalingRatioFloat.Float64()
 			}
 
 			logFields = append(logFields,
