@@ -106,7 +106,7 @@ rounds:
     network_fee: 0.1  # Network fee in SSV
   # ...
 
-# Inflation control mechanism (DIP-X)
+# Inflation control mechanism (DIP-39)
 # Controls the maximum SSV tokens that can be distributed per month
 inflation_control:
   annual_inflation_limit: 0.15  # 15% annual inflation cap (as decimal)
