@@ -104,20 +104,13 @@ rounds:
     # Example: To specify a fee of 0.1 SSV, use 0.1.
     # If omitted, no fee deduction is applied.
     network_fee: 0.1  # Network fee in SSV
+    
+    # `inflation_cap` (optional) is the maximum SSV tokens that can be distributed for this round.
+    # If total rewards exceed this cap, they are proportionally scaled down.
+    # Example: To cap rewards at 200,000 SSV, use 200000.
+    # If omitted, no cap is applied.
+    inflation_cap: 200000  # Manual inflation cap in SSV tokens
   # ...
-
-# Inflation control mechanism (DIP-39)
-# Controls the maximum SSV tokens that can be distributed per month
-inflation_control:
-  annual_inflation_limit: 0.15  # 15% annual inflation cap (as decimal)
-  enforcement_start: 2025-09    # September 2025 - when cap enforcement begins
-  interim_monthly_cap: 200000   # 200,000 SSV tokens per month until first supply snapshot
-  supply_snapshots:             # Must be sorted by period (ascending)
-    # Interim cap applies until this period (not including)
-    - period: 2026-01
-      supply: 16000000  # Example: 16M SSV supply for 2026 calculations
-    - period: 2027-01
-      supply: 18000000  # Example: 18M SSV supply for 2027 calculations
 ```
 
 ## Usage

@@ -420,8 +420,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).Display()),
 		}
 
-		if results.inflationCap != nil {
-			// Calculate scaling ratio for logging
+		if round.InflationCap != nil {
 			scalingRatio := 1.0
 			if results.originalRewards != nil && results.finalRewards != nil {
 				originalWei := results.originalRewards.Wei()
@@ -436,7 +435,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			}
 
 			logFields = append(logFields,
-				zap.String("inflation_cap", results.inflationCap.Display()),
+				zap.String("inflation_cap", round.InflationCap.Display()),
 				zap.Float64("scaling_ratio", scalingRatio),
 				zap.String("original_rewards", results.originalRewards.Display()),
 				zap.String("final_rewards", results.finalRewards.Display()),
@@ -573,16 +572,14 @@ func (c *CalcCmd) processRoundLegacy(
 	}
 
 	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
-	needsScaling, finalRewards, inflationCap, err := c.plan.EvaluateInflationCap(round.Period, originalRewards)
-	if err != nil {
-		return nil, err
-	}
+	finalRewards := originalRewards
 
-	if needsScaling {
-		inflationCapWei := inflationCap.Wei()
-		scaleRewards(validatorParticipations, inflationCapWei, totalRoundRewards)
-		scaleRewards(ownerParticipations, inflationCapWei, totalRoundRewards)
-		scaleRewards(recipientParticipations, inflationCapWei, totalRoundRewards)
+	// Apply inflation cap if exceeded
+	if round.InflationCap != nil && totalRoundRewards.Cmp(round.InflationCap.Wei()) > 0 {
+		scaleRewards(validatorParticipations, round.InflationCap, totalRoundRewards)
+		scaleRewards(ownerParticipations, round.InflationCap, totalRoundRewards)
+		scaleRewards(recipientParticipations, round.InflationCap, totalRoundRewards)
+		finalRewards = round.InflationCap
 	}
 
 	return &roundResults{
@@ -593,7 +590,6 @@ func (c *CalcCmd) processRoundLegacy(
 		tier:                    tier,
 		originalRewards:         originalRewards,
 		finalRewards:            finalRewards,
-		inflationCap:            inflationCap,
 	}, nil
 }
 
@@ -642,14 +638,12 @@ func (c *CalcCmd) processRound(
 	}
 
 	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
-	needsScaling, finalRewards, inflationCap, err := c.plan.EvaluateInflationCap(round.Period, originalRewards)
-	if err != nil {
-		return nil, err
-	}
+	finalRewards := originalRewards
 
-	if needsScaling {
-		inflationCapWei := inflationCap.Wei()
-		scaleRewards(validatorParticipations, inflationCapWei, totalRoundRewards)
+	// Apply inflation cap if exceeded
+	if round.InflationCap != nil && totalRoundRewards.Cmp(round.InflationCap.Wei()) > 0 {
+		scaleRewards(validatorParticipations, round.InflationCap, totalRoundRewards)
+		finalRewards = round.InflationCap
 	}
 
 	ownerParticipations := c.aggregateByOwner(validatorParticipations)
@@ -663,7 +657,6 @@ func (c *CalcCmd) processRound(
 		tier:                    tier,
 		finalRewards:            finalRewards,
 		originalRewards:         originalRewards,
-		inflationCap:            inflationCap,
 	}, nil
 }
 
@@ -680,7 +673,8 @@ func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticip
 }
 
 // scaleRewards applies proportional scaling to participation rewards when inflation cap is exceeded
-func scaleRewards(participations interface{}, inflationCapWei, totalRoundRewards *big.Int) {
+func scaleRewards(participations interface{}, inflationCap *precise.ETH, totalRoundRewards *big.Int) {
+	inflationCapWei := inflationCap.Wei()
 	switch p := participations.(type) {
 	case []*ValidatorParticipation:
 		for _, part := range p {
@@ -787,7 +781,6 @@ type roundResults struct {
 	tier                    *rewards.Tier
 	finalRewards            *precise.ETH // Final rewards distributed (after scaling)
 	originalRewards         *precise.ETH // Original rewards before scaling
-	inflationCap            *precise.ETH // Inflation cap for this period (nil if no cap)
 }
 
 func (c *CalcCmd) calculateReward(

@@ -38,9 +38,6 @@ type Plan struct {
 	//   - Constant daily rewards (daily = annual/365, then monthly = daily * days_in_month)
 	// Default: defaultLegacyCalculationCutoff (2025-08)
 	LegacyCalculationCutoff Period `yaml:"legacy_calculation_cutoff,omitempty"`
-
-	// InflationControl defines the inflation control mechanism
-	InflationControl *InflationControl `yaml:"inflation_control,omitempty"`
 }
 
 // ParsePlan parses the given YAML document into a Plan.
@@ -140,19 +137,16 @@ func (p *Plan) validate() error {
 	if !sort.IsSorted(p.Rounds) {
 		return errors.New("rounds are not sorted by period")
 	}
-	for i := 1; i < len(p.Rounds); i++ {
-		round := p.Rounds[i-1]
+	for i := 0; i < len(p.Rounds); i++ {
+		round := p.Rounds[i]
 		if round.NetworkFee != nil && round.NetworkFee.Wei().Sign() < 0 {
 			return fmt.Errorf("network_fee cannot be negative in round %s", round.Period)
 		}
-		if p.Rounds[i-1].Period == p.Rounds[i].Period {
-			return fmt.Errorf("duplicate round: %s", p.Rounds[i].Period)
+		if round.InflationCap != nil && round.InflationCap.Wei().Sign() <= 0 {
+			return fmt.Errorf("inflation_cap must be positive if specified in round %s", round.Period)
 		}
-	}
-
-	if p.InflationControl != nil {
-		if err := p.InflationControl.Validate(); err != nil {
-			return fmt.Errorf("invalid inflation_control: %w", err)
+		if i > 0 && p.Rounds[i-1].Period == p.Rounds[i].Period {
+			return fmt.Errorf("duplicate round: %s", p.Rounds[i].Period)
 		}
 	}
 
@@ -229,10 +223,11 @@ func (p *Plan) Tier(period Period, totalEffectiveBalance *precise.ETH) (*Tier, e
 }
 
 type Round struct {
-	Period     Period       `yaml:"period"`
-	ETHAPR     *precise.ETH `yaml:"eth_apr"`
-	SSVETH     *precise.ETH `yaml:"ssv_eth"`
-	NetworkFee *precise.ETH `yaml:"network_fee,omitempty"`
+	Period       Period       `yaml:"period"`
+	ETHAPR       *precise.ETH `yaml:"eth_apr"`
+	SSVETH       *precise.ETH `yaml:"ssv_eth"`
+	NetworkFee   *precise.ETH `yaml:"network_fee,omitempty"`
+	InflationCap *precise.ETH `yaml:"inflation_cap,omitempty"`
 }
 
 type Rounds []Round
@@ -345,26 +340,4 @@ func loadValidatorRedirectsFromCSV(filePath string) (ValidatorRedirects, error) 
 		redirects[from] = to
 	}
 	return redirects, nil
-}
-
-// GetPeriodInflationCap delegates to InflationControl if configured
-// Returns the cap as *precise.ETH (representing SSV tokens)
-func (p *Plan) GetPeriodInflationCap(period Period) (*precise.ETH, error) {
-	if p.InflationControl == nil {
-		return nil, nil // No cap configured
-	}
-	return p.InflationControl.GetPeriodInflationCap(period)
-}
-
-// EvaluateInflationCap delegates to InflationControl if configured
-// Returns whether scaling is needed, the final rewards amount, and the inflation cap
-func (p *Plan) EvaluateInflationCap(
-	period Period,
-	totalRoundRewards *precise.ETH,
-) (needsScaling bool, finalRewards *precise.ETH, inflationCap *precise.ETH, err error) {
-	if p.InflationControl == nil {
-		// No inflation control configured, return original rewards
-		return false, totalRoundRewards, nil, nil
-	}
-	return p.InflationControl.EvaluateInflationCap(period, totalRoundRewards)
 }

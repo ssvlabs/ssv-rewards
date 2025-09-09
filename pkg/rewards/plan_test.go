@@ -46,6 +46,7 @@ rounds:
   - period: 2023-08
     eth_apr: 0.048
     ssv_eth: 0.0088235294
+    inflation_cap: 150000
   - period: 2023-09
     eth_apr: 0.049
     ssv_eth: 0.0088235294
@@ -53,6 +54,7 @@ rounds:
   - period: 2023-10
     eth_apr: 
     ssv_eth: 
+    inflation_cap: 200000
 `
 	expected := Plan{
 		LegacyCalculationCutoff: NewPeriod(2025, 8),
@@ -91,9 +93,10 @@ rounds:
 				SSVETH: mustParseETH("0.0088235294"),
 			},
 			{
-				Period: NewPeriod(2023, time.August),
-				ETHAPR: mustParseETH("0.048"),
-				SSVETH: mustParseETH("0.0088235294"),
+				Period:       NewPeriod(2023, time.August),
+				ETHAPR:       mustParseETH("0.048"),
+				SSVETH:       mustParseETH("0.0088235294"),
+				InflationCap: mustParseETH("150000"),
 			},
 			{
 				Period:     NewPeriod(2023, time.September),
@@ -102,7 +105,8 @@ rounds:
 				NetworkFee: mustParseETH("0.0001"),
 			},
 			{
-				Period: NewPeriod(2023, time.October),
+				Period:       NewPeriod(2023, time.October),
+				InflationCap: mustParseETH("200000"),
 			},
 		},
 	}
@@ -260,6 +264,50 @@ func TestPlan_Validate(t *testing.T) {
 				Rounds: Rounds{{Period: NewPeriod(2020, 1)}},
 			},
 			expectedErr: "missing criteria",
+		},
+		{
+			name: "negative inflation cap",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since:    NewPeriod(2020, 1),
+						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
+						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}},
+					},
+				},
+				Rounds: Rounds{{Period: NewPeriod(2020, 1), InflationCap: mustParseETH("-100")}},
+			},
+			expectedErr: "inflation_cap must be positive if specified in round 2020-01",
+		},
+		{
+			name: "zero inflation cap",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since:    NewPeriod(2020, 1),
+						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
+						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}},
+					},
+				},
+				Rounds: Rounds{{Period: NewPeriod(2020, 1), InflationCap: mustParseETH("0")}},
+			},
+			expectedErr: "inflation_cap must be positive if specified in round 2020-01",
+		},
+		{
+			name: "valid plan with inflation cap",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since:    NewPeriod(2020, 1),
+						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
+						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}},
+					},
+				},
+				Rounds: Rounds{
+					{Period: NewPeriod(2020, 1), InflationCap: mustParseETH("100000")},
+					{Period: NewPeriod(2020, 2)},
+				},
+			},
 		},
 	}
 	for _, tt := range tests {
