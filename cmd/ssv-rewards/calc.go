@@ -572,7 +572,7 @@ func (c *CalcCmd) processRoundLegacy(
 		}
 	}
 
-	originalRewards := precise.NewETH(nil).SetWei(new(big.Int).Set(totalRoundRewards))
+	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
 	needsScaling, finalRewards, inflationCap, err := c.plan.EvaluateInflationCap(round.Period, originalRewards)
 	if err != nil {
 		return nil, err
@@ -580,20 +580,9 @@ func (c *CalcCmd) processRoundLegacy(
 
 	if needsScaling {
 		inflationCapWei := inflationCap.Wei()
-		for _, p := range validatorParticipations {
-			p.reward.Mul(p.reward, inflationCapWei)
-			p.reward.Div(p.reward, totalRoundRewards)
-		}
-
-		for _, p := range ownerParticipations {
-			p.reward.Mul(p.reward, inflationCapWei)
-			p.reward.Div(p.reward, totalRoundRewards)
-		}
-
-		for _, p := range recipientParticipations {
-			p.reward.Mul(p.reward, inflationCapWei)
-			p.reward.Div(p.reward, totalRoundRewards)
-		}
+		scaleRewards(validatorParticipations, inflationCapWei, totalRoundRewards)
+		scaleRewards(ownerParticipations, inflationCapWei, totalRoundRewards)
+		scaleRewards(recipientParticipations, inflationCapWei, totalRoundRewards)
 	}
 
 	return &roundResults{
@@ -652,19 +641,15 @@ func (c *CalcCmd) processRound(
 		totalRoundRewards.Add(totalRoundRewards, participation.reward)
 	}
 
-	originalRewards := precise.NewETH(nil).SetWei(new(big.Int).Set(totalRoundRewards))
+	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
 	needsScaling, finalRewards, inflationCap, err := c.plan.EvaluateInflationCap(round.Period, originalRewards)
 	if err != nil {
 		return nil, err
 	}
 
-	// Apply scaling if needed
 	if needsScaling {
 		inflationCapWei := inflationCap.Wei()
-		for _, p := range validatorParticipations {
-			p.reward.Mul(p.reward, inflationCapWei)
-			p.reward.Div(p.reward, totalRoundRewards)
-		}
+		scaleRewards(validatorParticipations, inflationCapWei, totalRoundRewards)
 	}
 
 	ownerParticipations := c.aggregateByOwner(validatorParticipations)
@@ -692,6 +677,27 @@ func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticip
 	}
 
 	return precise.NewETH(nil).SetGwei(big.NewInt(totalEffectiveBalanceGwei))
+}
+
+// scaleRewards applies proportional scaling to participation rewards when inflation cap is exceeded
+func scaleRewards(participations interface{}, inflationCapWei, totalRoundRewards *big.Int) {
+	switch p := participations.(type) {
+	case []*ValidatorParticipation:
+		for _, part := range p {
+			part.reward.Mul(part.reward, inflationCapWei)
+			part.reward.Div(part.reward, totalRoundRewards)
+		}
+	case []*OwnerParticipation:
+		for _, part := range p {
+			part.reward.Mul(part.reward, inflationCapWei)
+			part.reward.Div(part.reward, totalRoundRewards)
+		}
+	case []*RecipientParticipation:
+		for _, part := range p {
+			part.reward.Mul(part.reward, inflationCapWei)
+			part.reward.Div(part.reward, totalRoundRewards)
+		}
+	}
 }
 
 func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*OwnerParticipation {
