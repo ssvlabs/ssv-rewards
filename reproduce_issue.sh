@@ -17,9 +17,9 @@ import (
 )
 
 func main() {
-    url := "https://api.ssv.network/api/v4/mainnet/validators/duty_counts/383400/383624"
+    url := "https://api.ssv.network/api/v4/mainnet/clusters"
     
-    fmt.Printf("Testing SSV API endpoint that returns 14MB response...\n")
+    fmt.Printf("Testing SSV API endpoint...\n")
     fmt.Printf("URL: %s\n", url)
     fmt.Printf("Starting at: %s\n\n", time.Now().Format("15:04:05"))
     
@@ -66,7 +66,7 @@ docker build -f Dockerfile.test -t ssv-test . > /dev/null 2>&1
 echo -e "\n==================================================================="
 echo "TEST 1: Curl works fine in Docker container"
 echo "==================================================================="
-docker run --rm ssv-test sh -c "curl -s -o /dev/null -w 'Curl result: HTTP %{http_code}, Size: %{size_download} bytes, Time: %{time_total}s\n' https://api.ssv.network/api/v4/mainnet/validators/duty_counts/383400/383624"
+docker run --rm ssv-test sh -c "curl -s -o /dev/null -w 'Curl result: HTTP %{http_code}, Size: %{size_download} bytes, Time: %{time_total}s\n' https://api.ssv.network/api/v4/mainnet/clusters"
 
 echo -e "\n==================================================================="
 echo "TEST 2: Go HTTP client with Docker BRIDGE network (THIS WILL FAIL)"
