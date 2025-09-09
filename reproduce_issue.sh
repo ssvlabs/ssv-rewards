@@ -84,17 +84,11 @@ echo "==================================================================="
 docker run --rm --network host ssv-test /test_ssv
 
 echo -e "\n==================================================================="
-echo "TEST 5: Go binary directly on host (THIS WILL WORK)"
-echo "==================================================================="
-go run test_ssv.go 2>/dev/null || echo "Go not installed on host, skipping..."
-
-echo -e "\n==================================================================="
 echo "SUMMARY:"
 echo "- Curl directly from host: WORKS (baseline)"
 echo "- Curl in Docker with bridge network: FAILS/HANGS"
 echo "- Go HTTP client in Docker with bridge network: FAILS/HANGS"
 echo "- Go HTTP client with host network: WORKS"
-echo "- Go HTTP client directly on host: WORKS"
 echo ""
 echo "Docker bridge network is blocking connections to SSV API."
 echo "This is why we need network_mode: host as a workaround"
