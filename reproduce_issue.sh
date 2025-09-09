@@ -64,12 +64,12 @@ echo "Building test container..."
 docker build -f Dockerfile.test -t ssv-test . > /dev/null 2>&1
 
 echo -e "\n==================================================================="
-echo "TEST 1: Curl works fine in Docker container"
+echo "TEST 1: Curl in Docker container with bridge network"
 echo "==================================================================="
-docker run --rm ssv-test sh -c "curl -s -o /dev/null -w 'Curl result: HTTP %{http_code}, Size: %{size_download} bytes, Time: %{time_total}s\n' https://api.ssv.network/api/v4/mainnet/clusters"
+timeout 30 docker run --rm alpine/curl:latest --connect-timeout 10 --max-time 20 -s -o /dev/null -w 'Curl result: HTTP %{http_code}, Size: %{size_download} bytes, Time: %{time_total}s\n' https://api.ssv.network/api/v4/mainnet/clusters || echo "❌ Curl FAILED (timeout or error)"
 
 echo -e "\n==================================================================="
-echo "TEST 2: Go HTTP client with Docker BRIDGE network (THIS WILL FAIL)"
+echo "TEST 2: Go HTTP client in Docker container with bridge network"
 echo "==================================================================="
 timeout 120 docker run --rm ssv-test /test_ssv
 
@@ -85,10 +85,12 @@ go run test_ssv.go
 
 echo -e "\n==================================================================="
 echo "SUMMARY:"
-echo "- Curl works everywhere"
-echo "- Go HTTP client FAILS with Docker bridge network"
-echo "- Go HTTP client WORKS with host network"
-echo "- Go HTTP client WORKS directly on host"
+echo "- Curl in Docker with bridge network: FAILS/HANGS"
+echo "- Go HTTP client in Docker with bridge network: FAILS/HANGS"
+echo "- Go HTTP client with host network: WORKS"
+echo "- Go HTTP client directly on host: WORKS"
+echo ""
+echo "Docker bridge network is blocking connections to SSV API."
 echo "This is why we need network_mode: host as a workaround"
 echo "==================================================================="
 
