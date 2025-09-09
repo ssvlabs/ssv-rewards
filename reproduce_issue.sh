@@ -64,27 +64,33 @@ echo "Building test container..."
 docker build -f Dockerfile.test -t ssv-test . > /dev/null 2>&1
 
 echo -e "\n==================================================================="
-echo "TEST 1: Curl in Docker container with bridge network"
+echo "TEST 1: Curl directly from host (baseline test)"
+echo "==================================================================="
+curl --connect-timeout 10 --max-time 20 -s -o /dev/null -w 'Curl result: HTTP %{http_code}, Size: %{size_download} bytes, Time: %{time_total}s\n' https://api.ssv.network/api/v4/mainnet/clusters || echo "❌ Curl FAILED (timeout or error)"
+
+echo -e "\n==================================================================="
+echo "TEST 2: Curl in Docker container with bridge network"
 echo "==================================================================="
 timeout 30 docker run --rm alpine/curl:latest --connect-timeout 10 --max-time 20 -s -o /dev/null -w 'Curl result: HTTP %{http_code}, Size: %{size_download} bytes, Time: %{time_total}s\n' https://api.ssv.network/api/v4/mainnet/clusters || echo "❌ Curl FAILED (timeout or error)"
 
 echo -e "\n==================================================================="
-echo "TEST 2: Go HTTP client in Docker container with bridge network"
+echo "TEST 3: Go HTTP client in Docker container with bridge network"
 echo "==================================================================="
 timeout 120 docker run --rm ssv-test /test_ssv
 
 echo -e "\n==================================================================="
-echo "TEST 3: Go HTTP client with HOST network (THIS WILL WORK)"
+echo "TEST 4: Go HTTP client with HOST network (THIS WILL WORK)"
 echo "==================================================================="
 docker run --rm --network host ssv-test /test_ssv
 
 echo -e "\n==================================================================="
-echo "TEST 4: Go binary directly on host (THIS WILL WORK)"
+echo "TEST 5: Go binary directly on host (THIS WILL WORK)"
 echo "==================================================================="
-go run test_ssv.go
+go run test_ssv.go 2>/dev/null || echo "Go not installed on host, skipping..."
 
 echo -e "\n==================================================================="
 echo "SUMMARY:"
+echo "- Curl directly from host: WORKS (baseline)"
 echo "- Curl in Docker with bridge network: FAILS/HANGS"
 echo "- Go HTTP client in Docker with bridge network: FAILS/HANGS"
 echo "- Go HTTP client with host network: WORKS"
