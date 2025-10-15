@@ -522,35 +522,37 @@ func (c *CalcCmd) processRoundLegacy(
 	roundDays := round.Period.Days()
 	networkFee := round.NetworkFee
 
-	totalRoundRewards := big.NewInt(0)
-	for _, participation := range validatorParticipations {
-		participation.reward, participation.feeDeduction, err = c.calculateReward(
-			participation.TotalActiveEffectiveBalance,
-			participation.TotalRegisteredEffectiveBalance,
-			participation.RegisteredDays,
-			roundDays,
-			dailyReward,
-			networkFee.Wei(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
-		}
-		totalRoundRewards.Add(totalRoundRewards, participation.reward)
-	}
+    totalRoundRewards := big.NewInt(0)
+    totalBaseWei := big.NewInt(0)
+    for _, participation := range validatorParticipations {
+        participation.reward, participation.feeDeduction, err = c.calculateReward(
+            participation.TotalActiveEffectiveBalance,
+            participation.TotalRegisteredEffectiveBalance,
+            participation.RegisteredDays,
+            roundDays,
+            dailyReward,
+            networkFee.Wei(),
+        )
+        if err != nil {
+            return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
+        }
+        totalRoundRewards.Add(totalRoundRewards, participation.reward)
+        totalBaseWei.Add(totalBaseWei, new(big.Int).Add(participation.reward, participation.feeDeduction))
+    }
 
-	for _, participation := range ownerParticipations {
-		participation.reward, participation.feeDeduction, err = c.calculateReward(
-			participation.TotalActiveEffectiveBalance,
-			participation.TotalRegisteredEffectiveBalance,
-			participation.RegisteredDays,
-			roundDays,
-			dailyReward,
-			networkFee.Wei(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to calculate owner reward: %w", err)
-		}
-	}
+    for _, participation := range ownerParticipations {
+        participation.reward, participation.feeDeduction, err = c.calculateReward(
+            participation.TotalActiveEffectiveBalance,
+            participation.TotalRegisteredEffectiveBalance,
+            participation.RegisteredDays,
+            roundDays,
+            dailyReward,
+            networkFee.Wei(),
+        )
+        if err != nil {
+            return nil, fmt.Errorf("failed to calculate owner reward: %w", err)
+        }
+    }
 
 	for _, participation := range recipientParticipations {
 		participation.reward, participation.feeDeduction, err = c.calculateReward(
@@ -566,16 +568,59 @@ func (c *CalcCmd) processRoundLegacy(
 		}
 	}
 
-	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
-	finalRewards := originalRewards
+    originalRewards := precise.NewETH(nil).SetWei(new(big.Int).Set(totalRoundRewards))
 
-	// Apply inflation cap if exceeded
-	if round.InflationCap != nil && totalRoundRewards.Cmp(round.InflationCap.Wei()) > 0 {
-		scaleRewards(validatorParticipations, round.InflationCap, totalRoundRewards)
-		scaleRewards(ownerParticipations, round.InflationCap, totalRoundRewards)
-		scaleRewards(recipientParticipations, round.InflationCap, totalRoundRewards)
-		finalRewards = round.InflationCap
-	}
+    // Apply inflation cap BEFORE fee deduction by scaling dailyReward and recomputing
+    if round.InflationCap != nil && totalBaseWei.Cmp(round.InflationCap.Wei()) == 1 {
+        // Compute scaled dailyReward' = floor(dailyReward * cap / totalBase)
+        scaledDailyReward := new(big.Int).Mul(dailyReward, round.InflationCap.Wei())
+        scaledDailyReward.Div(scaledDailyReward, totalBaseWei)
+
+        // Recompute with scaled daily reward
+        totalRoundRewards.SetInt64(0)
+        for _, participation := range validatorParticipations {
+            participation.reward, participation.feeDeduction, err = c.calculateReward(
+                participation.TotalActiveEffectiveBalance,
+                participation.TotalRegisteredEffectiveBalance,
+                participation.RegisteredDays,
+                roundDays,
+                scaledDailyReward,
+                networkFee.Wei(),
+            )
+            if err != nil {
+                return nil, fmt.Errorf("failed to calculate validator reward (scaled): %w", err)
+            }
+            totalRoundRewards.Add(totalRoundRewards, participation.reward)
+        }
+
+        // Owner & recipient are SQL-aggregated in legacy mode; recompute with the same scaled daily reward
+        for _, participation := range ownerParticipations {
+            participation.reward, participation.feeDeduction, err = c.calculateReward(
+                participation.TotalActiveEffectiveBalance,
+                participation.TotalRegisteredEffectiveBalance,
+                participation.RegisteredDays,
+                roundDays,
+                scaledDailyReward,
+                networkFee.Wei(),
+            )
+            if err != nil {
+                return nil, fmt.Errorf("failed to calculate owner reward (scaled): %w", err)
+            }
+        }
+        for _, participation := range recipientParticipations {
+            participation.reward, participation.feeDeduction, err = c.calculateReward(
+                participation.TotalActiveEffectiveBalance,
+                participation.TotalRegisteredEffectiveBalance,
+                participation.RegisteredDays,
+                roundDays,
+                scaledDailyReward,
+                networkFee.Wei(),
+            )
+            if err != nil {
+                return nil, fmt.Errorf("failed to calculate recipient reward (scaled): %w", err)
+            }
+        }
+    }
 
 	return &roundResults{
 		validatorParticipations: validatorParticipations,
@@ -583,9 +628,9 @@ func (c *CalcCmd) processRoundLegacy(
 		recipientParticipations: recipientParticipations,
 		totalEffectiveBalance:   totalEffectiveBalance,
 		tier:                    tier,
-		originalRewards:         originalRewards,
-		finalRewards:            finalRewards,
-	}, nil
+        originalRewards:         originalRewards,
+        finalRewards:            precise.NewETH(nil).SetWei(totalRoundRewards),
+    }, nil
 }
 
 // processRound handles reward calculation for periods from the legacy cutoff onwards
@@ -615,31 +660,47 @@ func (c *CalcCmd) processRound(
 	roundDays := round.Period.Days()
 	networkFee := round.NetworkFee
 
-	totalRoundRewards := big.NewInt(0)
-	for _, participation := range validatorParticipations {
-		participation.reward, participation.feeDeduction, err = c.calculateReward(
-			participation.TotalActiveEffectiveBalance,
-			participation.TotalRegisteredEffectiveBalance,
-			participation.RegisteredDays,
-			roundDays,
-			dailyReward,
-			networkFee.Wei(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
-		}
+    totalRoundRewards := big.NewInt(0)
+    totalBaseWei := big.NewInt(0)
+    for _, participation := range validatorParticipations {
+        participation.reward, participation.feeDeduction, err = c.calculateReward(
+            participation.TotalActiveEffectiveBalance,
+            participation.TotalRegisteredEffectiveBalance,
+            participation.RegisteredDays,
+            roundDays,
+            dailyReward,
+            networkFee.Wei(),
+        )
+        if err != nil {
+            return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
+        }
+        totalRoundRewards.Add(totalRoundRewards, participation.reward)
+        totalBaseWei.Add(totalBaseWei, new(big.Int).Add(participation.reward, participation.feeDeduction))
+    }
 
-		totalRoundRewards.Add(totalRoundRewards, participation.reward)
-	}
+    originalRewards := precise.NewETH(nil).SetWei(new(big.Int).Set(totalRoundRewards))
 
-	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
-	finalRewards := originalRewards
+    // Apply inflation cap BEFORE fee deduction by scaling dailyReward and recomputing
+    if round.InflationCap != nil && totalBaseWei.Cmp(round.InflationCap.Wei()) == 1 {
+        scaledDailyReward := new(big.Int).Mul(dailyReward, round.InflationCap.Wei())
+        scaledDailyReward.Div(scaledDailyReward, totalBaseWei)
 
-	// Apply inflation cap if exceeded
-	if round.InflationCap != nil && totalRoundRewards.Cmp(round.InflationCap.Wei()) > 0 {
-		scaleRewards(validatorParticipations, round.InflationCap, totalRoundRewards)
-		finalRewards = round.InflationCap
-	}
+        totalRoundRewards.SetInt64(0)
+        for _, participation := range validatorParticipations {
+            participation.reward, participation.feeDeduction, err = c.calculateReward(
+                participation.TotalActiveEffectiveBalance,
+                participation.TotalRegisteredEffectiveBalance,
+                participation.RegisteredDays,
+                roundDays,
+                scaledDailyReward,
+                networkFee.Wei(),
+            )
+            if err != nil {
+                return nil, fmt.Errorf("failed to calculate validator reward (scaled): %w", err)
+            }
+            totalRoundRewards.Add(totalRoundRewards, participation.reward)
+        }
+    }
 
 	ownerParticipations := c.aggregateByOwner(validatorParticipations)
 	recipientParticipations := c.aggregateByRecipient(validatorParticipations)
@@ -650,9 +711,9 @@ func (c *CalcCmd) processRound(
 		recipientParticipations: recipientParticipations,
 		totalEffectiveBalance:   totalEffectiveBalance,
 		tier:                    tier,
-		finalRewards:            finalRewards,
-		originalRewards:         originalRewards,
-	}, nil
+        finalRewards:            precise.NewETH(nil).SetWei(totalRoundRewards),
+        originalRewards:         originalRewards,
+    }, nil
 }
 
 func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticipation) *precise.ETH {
@@ -668,26 +729,7 @@ func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticip
 }
 
 // scaleRewards applies proportional scaling to participation rewards when inflation cap is exceeded
-func scaleRewards(participations interface{}, inflationCap *precise.ETH, totalRoundRewards *big.Int) {
-	inflationCapWei := inflationCap.Wei()
-	switch p := participations.(type) {
-	case []*ValidatorParticipation:
-		for _, part := range p {
-			part.reward.Mul(part.reward, inflationCapWei)
-			part.reward.Div(part.reward, totalRoundRewards)
-		}
-	case []*OwnerParticipation:
-		for _, part := range p {
-			part.reward.Mul(part.reward, inflationCapWei)
-			part.reward.Div(part.reward, totalRoundRewards)
-		}
-	case []*RecipientParticipation:
-		for _, part := range p {
-			part.reward.Mul(part.reward, inflationCapWei)
-			part.reward.Div(part.reward, totalRoundRewards)
-		}
-	}
-}
+// scaleRewards no longer used; kept intentionally removed to avoid net-only scaling semantics
 
 func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*OwnerParticipation {
 	type ownerRecipientKey struct {
