@@ -24,10 +24,6 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 )
 
-// BaseEffectiveBalanceGwei 32 ETH in Gwei (32 * 1e9 = 32_000_000_000)
-const BaseEffectiveBalanceGwei = 32_000_000_000
-const Gwei = int64(1e9)
-
 type CalcCmd struct {
 	Dir                 string `default:"./rewards" help:"Path to save the rewards to,"`
 	PerformanceProvider string `default:"beaconcha" help:"Performance provider to use." enum:"beaconcha,e2m"`
@@ -177,8 +173,7 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		totalByRecipient = map[string]*RecipientParticipation{}
 	)
 
-	// Get the legacy calculation cutoff (defaults to 2025-08)
-	legacyCalculationCutoff := c.plan.GetLegacyCalculationCutoff()
+	legacyCalculationCutoff := c.plan.LegacyCalculationCutoff
 
 	for _, round := range completeRounds {
 		mechanics, err := c.plan.Mechanics.At(round.Period)
@@ -195,10 +190,10 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		var results *roundResults
-		if time.Time(round.Period).Before(time.Time(legacyCalculationCutoff)) {
-			results, err = c.processRoundLegacy(ctx, logger, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+		if round.Period.Before(legacyCalculationCutoff) {
+			results, err = c.processRoundLegacy(ctx, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		} else {
-			results, err = c.processRound(ctx, logger, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+			results, err = c.processRound(ctx, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to process round %s: %w", round.Period, err)
@@ -207,8 +202,6 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		validatorParticipations := results.validatorParticipations
 		ownerParticipations := results.ownerParticipations
 		recipientParticipations := results.recipientParticipations
-		totalEffectiveBalanceGwei := results.totalEffectiveBalanceGwei
-		tier := results.tier
 
 		// Add validator participations to round and total aggregations
 		for _, participation := range validatorParticipations {
@@ -407,25 +400,44 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		var dailyReward, monthlyReward, annualReward *big.Int
-		if time.Time(round.Period).Before(time.Time(legacyCalculationCutoff)) {
-			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewardsLegacy(round.Period, tier)
+		if round.Period.Before(legacyCalculationCutoff) {
+			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewardsLegacy(round.Period, results.tier)
 		} else {
-			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewards(round.Period, tier)
+			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewards(round.Period, results.tier)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to get rewards: %w", err)
 		}
 
-		logger.Info(
-			"Exported rewards for round",
+		logFields := []zap.Field{
 			zap.String("period", round.Period.String()),
-			zap.Int64("total_effective_balance", totalEffectiveBalanceGwei/Gwei),
-			zap.Int64("tier", tier.MaxEffectiveBalance),
-			zap.String("network_fee", round.NetworkFee.String()),
-			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).String()),
-			zap.String("monthly_reward", precise.NewETH(nil).SetWei(monthlyReward).String()),
-			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).String()),
-		)
+			zap.String("total_effective_balance", results.totalEffectiveBalance.Display()),
+			zap.String("tier", results.tier.MaxEffectiveBalance.Display()),
+			zap.String("network_fee", round.NetworkFee.Display()),
+			zap.String("daily_reward", precise.NewETH(nil).SetWei(dailyReward).Display()),
+			zap.String("monthly_reward", precise.NewETH(nil).SetWei(monthlyReward).Display()),
+			zap.String("annual_reward", precise.NewETH(nil).SetWei(annualReward).Display()),
+		}
+
+		if round.InflationCap != nil {
+			scalingRatio := 1.0
+			if results.originalRewards.Wei().Sign() > 0 {
+				scalingRatioFloat := new(big.Float).Quo(
+					new(big.Float).SetInt(results.finalRewards.Wei()),
+					new(big.Float).SetInt(results.originalRewards.Wei()),
+				)
+				scalingRatio, _ = scalingRatioFloat.Float64()
+			}
+
+			logFields = append(logFields,
+				zap.String("inflation_cap", round.InflationCap.Display()),
+				zap.Float64("scaling_ratio", scalingRatio),
+				zap.String("original_rewards", results.originalRewards.Display()),
+				zap.String("final_rewards", results.finalRewards.Display()),
+			)
+		}
+
+		logger.Info("Exported rewards for round", logFields...)
 	}
 
 	for _, v := range totalByValidator {
@@ -477,7 +489,6 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 // It uses SQL-aggregated data to preserve backward compatibility with published merkle trees
 func (c *CalcCmd) processRoundLegacy(
 	ctx context.Context,
-	logger *zap.Logger,
 	round rewards.Round,
 	mechanics *rewards.Mechanics,
 	ownerRedirectsSupport, validatorRedirectsSupport bool,
@@ -497,9 +508,8 @@ func (c *CalcCmd) processRoundLegacy(
 		return nil, fmt.Errorf("failed to get recipient participations: %w", err)
 	}
 
-	totalEffectiveBalanceGwei := c.calculateTotalEffectiveBalance(validatorParticipations)
-
-	tier, err := c.plan.Tier(round.Period, totalEffectiveBalanceGwei)
+	totalEffectiveBalance := c.calculateTotalEffectiveBalance(validatorParticipations)
+	tier, err := c.plan.Tier(round.Period, totalEffectiveBalance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tier: %w", err)
 	}
@@ -512,6 +522,7 @@ func (c *CalcCmd) processRoundLegacy(
 	roundDays := round.Period.Days()
 	networkFee := round.NetworkFee
 
+	totalRoundRewards := big.NewInt(0)
 	for _, participation := range validatorParticipations {
 		participation.reward, participation.feeDeduction, err = c.calculateReward(
 			participation.TotalActiveEffectiveBalance,
@@ -524,6 +535,7 @@ func (c *CalcCmd) processRoundLegacy(
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
 		}
+		totalRoundRewards.Add(totalRoundRewards, participation.reward)
 	}
 
 	for _, participation := range ownerParticipations {
@@ -554,18 +566,25 @@ func (c *CalcCmd) processRoundLegacy(
 		}
 	}
 
-	logger.Info("Calculated rewards for round",
-		zap.String("period", round.Period.String()),
-		zap.Int64("tier", tier.MaxEffectiveBalance),
-		zap.String("network_fee", networkFee.String()),
-	)
+	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
+	finalRewards := originalRewards
+
+	// Apply inflation cap if exceeded
+	if round.InflationCap != nil && totalRoundRewards.Cmp(round.InflationCap.Wei()) > 0 {
+		scaleRewards(validatorParticipations, round.InflationCap, totalRoundRewards)
+		scaleRewards(ownerParticipations, round.InflationCap, totalRoundRewards)
+		scaleRewards(recipientParticipations, round.InflationCap, totalRoundRewards)
+		finalRewards = round.InflationCap
+	}
 
 	return &roundResults{
-		validatorParticipations:   validatorParticipations,
-		ownerParticipations:       ownerParticipations,
-		recipientParticipations:   recipientParticipations,
-		totalEffectiveBalanceGwei: totalEffectiveBalanceGwei,
-		tier:                      tier,
+		validatorParticipations: validatorParticipations,
+		ownerParticipations:     ownerParticipations,
+		recipientParticipations: recipientParticipations,
+		totalEffectiveBalance:   totalEffectiveBalance,
+		tier:                    tier,
+		originalRewards:         originalRewards,
+		finalRewards:            finalRewards,
 	}, nil
 }
 
@@ -573,7 +592,6 @@ func (c *CalcCmd) processRoundLegacy(
 // It calculates fees per validator before aggregation for correct fee handling
 func (c *CalcCmd) processRound(
 	ctx context.Context,
-	logger *zap.Logger,
 	round rewards.Round,
 	mechanics *rewards.Mechanics,
 	ownerRedirectsSupport, validatorRedirectsSupport bool,
@@ -583,8 +601,8 @@ func (c *CalcCmd) processRound(
 		return nil, fmt.Errorf("failed to get validator participations: %w", err)
 	}
 
-	totalEffectiveBalanceGwei := c.calculateTotalEffectiveBalance(validatorParticipations)
-	tier, err := c.plan.Tier(round.Period, totalEffectiveBalanceGwei)
+	totalEffectiveBalance := c.calculateTotalEffectiveBalance(validatorParticipations)
+	tier, err := c.plan.Tier(round.Period, totalEffectiveBalance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tier: %w", err)
 	}
@@ -597,6 +615,7 @@ func (c *CalcCmd) processRound(
 	roundDays := round.Period.Days()
 	networkFee := round.NetworkFee
 
+	totalRoundRewards := big.NewInt(0)
 	for _, participation := range validatorParticipations {
 		participation.reward, participation.feeDeduction, err = c.calculateReward(
 			participation.TotalActiveEffectiveBalance,
@@ -609,28 +628,34 @@ func (c *CalcCmd) processRound(
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
 		}
+
+		totalRoundRewards.Add(totalRoundRewards, participation.reward)
+	}
+
+	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
+	finalRewards := originalRewards
+
+	// Apply inflation cap if exceeded
+	if round.InflationCap != nil && totalRoundRewards.Cmp(round.InflationCap.Wei()) > 0 {
+		scaleRewards(validatorParticipations, round.InflationCap, totalRoundRewards)
+		finalRewards = round.InflationCap
 	}
 
 	ownerParticipations := c.aggregateByOwner(validatorParticipations)
 	recipientParticipations := c.aggregateByRecipient(validatorParticipations)
 
-	logger.Info("Calculated rewards for round",
-		zap.String("period", round.Period.String()),
-		zap.Int64("tier", tier.MaxEffectiveBalance),
-		zap.String("network_fee", networkFee.String()),
-	)
-
 	return &roundResults{
-		validatorParticipations:   validatorParticipations,
-		ownerParticipations:       ownerParticipations,
-		recipientParticipations:   recipientParticipations,
-		totalEffectiveBalanceGwei: totalEffectiveBalanceGwei,
-		tier:                      tier,
+		validatorParticipations: validatorParticipations,
+		ownerParticipations:     ownerParticipations,
+		recipientParticipations: recipientParticipations,
+		totalEffectiveBalance:   totalEffectiveBalance,
+		tier:                    tier,
+		finalRewards:            finalRewards,
+		originalRewards:         originalRewards,
 	}, nil
 }
 
-// calculateTotalEffectiveBalance calculates the total effective balance across all validators
-func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticipation) int64 {
+func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticipation) *precise.ETH {
 	var totalEffectiveBalanceGwei int64
 	for _, v := range validators {
 		if v.ActiveDays == 0 {
@@ -638,12 +663,33 @@ func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticip
 		}
 		totalEffectiveBalanceGwei += v.TotalActiveEffectiveBalance / int64(v.ActiveDays)
 	}
-	return totalEffectiveBalanceGwei
+
+	return precise.NewETH(nil).SetGwei(big.NewInt(totalEffectiveBalanceGwei))
 }
 
-// aggregateByOwner aggregates validator participations by owner and recipient address
+// scaleRewards applies proportional scaling to participation rewards when inflation cap is exceeded
+func scaleRewards(participations interface{}, inflationCap *precise.ETH, totalRoundRewards *big.Int) {
+	inflationCapWei := inflationCap.Wei()
+	switch p := participations.(type) {
+	case []*ValidatorParticipation:
+		for _, part := range p {
+			part.reward.Mul(part.reward, inflationCapWei)
+			part.reward.Div(part.reward, totalRoundRewards)
+		}
+	case []*OwnerParticipation:
+		for _, part := range p {
+			part.reward.Mul(part.reward, inflationCapWei)
+			part.reward.Div(part.reward, totalRoundRewards)
+		}
+	case []*RecipientParticipation:
+		for _, part := range p {
+			part.reward.Mul(part.reward, inflationCapWei)
+			part.reward.Div(part.reward, totalRoundRewards)
+		}
+	}
+}
+
 func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*OwnerParticipation {
-	// Use composite key to match SQL GROUP BY behavior
 	type ownerRecipientKey struct {
 		owner     string
 		recipient string
@@ -686,7 +732,6 @@ func (c *CalcCmd) aggregateByOwner(validators []*ValidatorParticipation) []*Owne
 	return result
 }
 
-// aggregateByRecipient aggregates validator participations by recipient address
 func (c *CalcCmd) aggregateByRecipient(validators []*ValidatorParticipation) []*RecipientParticipation {
 	aggregations := make(map[string]*RecipientParticipation)
 
@@ -724,11 +769,13 @@ func (c *CalcCmd) aggregateByRecipient(validators []*ValidatorParticipation) []*
 
 // roundResults contains all the calculated participations for a round
 type roundResults struct {
-	validatorParticipations   []*ValidatorParticipation
-	ownerParticipations       []*OwnerParticipation
-	recipientParticipations   []*RecipientParticipation
-	totalEffectiveBalanceGwei int64
-	tier                      *rewards.Tier
+	validatorParticipations []*ValidatorParticipation
+	ownerParticipations     []*OwnerParticipation
+	recipientParticipations []*RecipientParticipation
+	totalEffectiveBalance   *precise.ETH
+	tier                    *rewards.Tier
+	finalRewards            *precise.ETH // Final rewards distributed (after scaling)
+	originalRewards         *precise.ETH // Original rewards before scaling
 }
 
 func (c *CalcCmd) calculateReward(
@@ -750,7 +797,8 @@ func (c *CalcCmd) calculateReward(
 	roundDays := big.NewInt(int64(roundDaysI))
 
 	// ---- shared factors ----
-	unitBase := new(big.Int).Mul(big.NewInt(BaseEffectiveBalanceGwei), roundDays) // 32 * roundDays
+	baseEffectiveBalanceGwei := rewards.BaseEffectiveBalance.Gwei()
+	unitBase := new(big.Int).Mul(baseEffectiveBalanceGwei, roundDays) // 32 ETH * roundDays
 	rewardTier := new(big.Int).Mul(dailyReward, roundDays)
 
 	// 1. baseRewardᵢ = (rewardCap × ΣwActiveEBᵢ) / unitBase
@@ -789,8 +837,8 @@ type ValidatorParticipation struct {
 	PublicKey                       string
 	ActiveDays                      int
 	RegisteredDays                  int
-	TotalActiveEffectiveBalance     int64
-	TotalRegisteredEffectiveBalance int64
+	TotalActiveEffectiveBalance     int64        // In Gwei
+	TotalRegisteredEffectiveBalance int64        // In Gwei
 	FeeDeduction                    *precise.ETH `boil:"-"`
 	feeDeduction                    *big.Int     `boil:"-"`
 	Reward                          *precise.ETH `boil:"-"`
@@ -800,8 +848,14 @@ type ValidatorParticipation struct {
 func (p *ValidatorParticipation) Normalize() {
 	p.Reward = precise.NewETH(nil).SetWei(p.reward)
 	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
-	p.TotalActiveEffectiveBalance /= Gwei
-	p.TotalRegisteredEffectiveBalance /= Gwei
+
+	// Convert Gwei to ETH using precise package
+	totalActiveETH := precise.NewETH(nil).SetGwei(big.NewInt(p.TotalActiveEffectiveBalance))
+	totalRegisteredETH := precise.NewETH(nil).SetGwei(big.NewInt(p.TotalRegisteredEffectiveBalance))
+
+	// Get whole ETH for CSV export
+	p.TotalActiveEffectiveBalance = totalActiveETH.ETH()
+	p.TotalRegisteredEffectiveBalance = totalRegisteredETH.ETH()
 }
 
 type ValidatorParticipationRound struct {
@@ -846,8 +900,14 @@ type OwnerParticipation struct {
 func (p *OwnerParticipation) Normalize() {
 	p.Reward = precise.NewETH(nil).SetWei(p.reward)
 	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
-	p.TotalActiveEffectiveBalance /= Gwei
-	p.TotalRegisteredEffectiveBalance /= Gwei
+
+	// Convert Gwei to ETH using precise package
+	totalActiveETH := precise.NewETH(nil).SetGwei(big.NewInt(p.TotalActiveEffectiveBalance))
+	totalRegisteredETH := precise.NewETH(nil).SetGwei(big.NewInt(p.TotalRegisteredEffectiveBalance))
+
+	// Get whole ETH for CSV export
+	p.TotalActiveEffectiveBalance = totalActiveETH.ETH()
+	p.TotalRegisteredEffectiveBalance = totalRegisteredETH.ETH()
 }
 
 type OwnerParticipationRound struct {
@@ -891,8 +951,14 @@ type RecipientParticipation struct {
 func (p *RecipientParticipation) Normalize() {
 	p.Reward = precise.NewETH(nil).SetWei(p.reward)
 	p.FeeDeduction = precise.NewETH(nil).SetWei(p.feeDeduction)
-	p.TotalActiveEffectiveBalance /= Gwei
-	p.TotalRegisteredEffectiveBalance /= Gwei
+
+	// Convert Gwei to ETH using precise package
+	totalActiveETH := precise.NewETH(nil).SetGwei(big.NewInt(p.TotalActiveEffectiveBalance))
+	totalRegisteredETH := precise.NewETH(nil).SetGwei(big.NewInt(p.TotalRegisteredEffectiveBalance))
+
+	// Get whole ETH for CSV export
+	p.TotalActiveEffectiveBalance = totalActiveETH.ETH()
+	p.TotalRegisteredEffectiveBalance = totalRegisteredETH.ETH()
 }
 
 type RecipientParticipationRound struct {

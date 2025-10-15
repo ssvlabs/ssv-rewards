@@ -3,6 +3,7 @@ package precise
 import (
 	"encoding/json"
 	"math/big"
+	"strings"
 )
 
 const (
@@ -61,6 +62,17 @@ func (e *ETH) String() string {
 	return e.Float().Text('f', decimals)
 }
 
+// Display returns a human-readable string with trailing zeros removed
+func (e *ETH) Display() string {
+	s := e.String()
+	// Remove trailing zeros after decimal point
+	if strings.Contains(s, ".") {
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimRight(s, ".")
+	}
+	return s
+}
+
 func (e *ETH) MarshalText() ([]byte, error) {
 	return []byte(e.String()), nil
 }
@@ -106,4 +118,20 @@ func (e *ETH) Gwei() *big.Int {
 	copy.Mul(copy, big.NewFloat(1e9))
 	copy.Int(gwei)
 	return gwei
+}
+
+func (e *ETH) SetGwei(gwei *big.Int) *ETH {
+	e.Float().SetInt(gwei)
+	e.Float().Quo(e.Float(), big.NewFloat(1e9))
+	return e
+}
+
+// ETH returns the whole ETH value as int64 (truncates decimal places).
+// For example, 32.5 ETH returns 32.
+// This is useful for CSV exports and display where whole ETH values are needed.
+func (e *ETH) ETH() int64 {
+	// Wei / 1e18 = ETH (whole number only)
+	weiPerETH := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	ethWhole := new(big.Int).Div(e.Wei(), weiPerETH)
+	return ethWhole.Int64()
 }

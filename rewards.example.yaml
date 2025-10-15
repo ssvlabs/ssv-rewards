@@ -82,3 +82,4 @@ rounds:
     eth_apr: 0.049
     ssv_eth: 0.0092352941
     network_fee: 0.1  # Network fee in SSV
+    inflation_cap: 200000  # Optional: Maximum SSV tokens for this round

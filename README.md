@@ -104,6 +104,12 @@ rounds:
     # Example: To specify a fee of 0.1 SSV, use 0.1.
     # If omitted, no fee deduction is applied.
     network_fee: 0.1  # Network fee in SSV
+    
+    # `inflation_cap` (optional) is the maximum SSV tokens that can be distributed for this round.
+    # If total rewards exceed this cap, they are proportionally scaled down.
+    # Example: To cap rewards at 200,000 SSV, use 200000.
+    # If omitted, no cap is applied.
+    inflation_cap: 200000  # Manual inflation cap in SSV tokens
   # ...
 ```
 

@@ -70,3 +70,23 @@ func (r *Period) UnmarshalJSON(data []byte) error {
 	}
 	return r.UnmarshalText([]byte(s))
 }
+
+// Before reports whether the period r is before p2
+func (r Period) Before(p2 Period) bool {
+	return time.Time(r).Before(time.Time(p2))
+}
+
+// After reports whether the period r is after p2
+func (r Period) After(p2 Period) bool {
+	return time.Time(r).After(time.Time(p2))
+}
+
+// Equal reports whether the period r is equal to p2
+func (r Period) Equal(p2 Period) bool {
+	return time.Time(r).Equal(time.Time(p2))
+}
+
+// IsZero reports whether the period is the zero value
+func (r Period) IsZero() bool {
+	return time.Time(r).IsZero()
+}
