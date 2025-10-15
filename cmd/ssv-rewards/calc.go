@@ -615,31 +615,78 @@ func (c *CalcCmd) processRound(
 	roundDays := round.Period.Days()
 	networkFee := round.NetworkFee
 
-	totalRoundRewards := big.NewInt(0)
-	for _, participation := range validatorParticipations {
-		participation.reward, participation.feeDeduction, err = c.calculateReward(
-			participation.TotalActiveEffectiveBalance,
-			participation.TotalRegisteredEffectiveBalance,
-			participation.RegisteredDays,
-			roundDays,
-			dailyReward,
-			networkFee.Wei(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to calculate validator reward: %w", err)
+	// Simple, single-pass modern logic:
+	// 1) Compute each validator's base (pre-fee) and rawFee.
+	// 2) If a cap exists, scale each base proportionally so Σbase ≈ cap.
+	// 3) Deduct fees last: feeᵢ = min(rawFeeᵢ, baseᵢ'), rewardᵢ = baseᵢ' − feeᵢ.
+	unitBase := new(big.Int).Mul(rewards.BaseEffectiveBalance.Gwei(), big.NewInt(int64(roundDays))) // 32e9 Gwei * roundDays
+	rewardTier := new(big.Int).Mul(dailyReward, big.NewInt(int64(roundDays)))                       // dailyReward (wei) * roundDays
+
+	n := len(validatorParticipations)
+	bases := make([]*big.Int, n)
+	rawFees := make([]*big.Int, n)
+
+	sumBase := big.NewInt(0)
+	originalRewardsWei := big.NewInt(0)
+
+	for i, v := range validatorParticipations {
+		// baseᵢ = (rewardTier × wActiveEBᵢ) / unitBase
+		base := new(big.Int).Mul(rewardTier, big.NewInt(v.TotalActiveEffectiveBalance))
+		base.Div(base, unitBase)
+
+		// rawFeeᵢ = max( (NF × wRegEBᵢ)/unitBase − (NF × registeredDaysᵢ)/roundDays , 0 )
+		feeFromEB := new(big.Int).Mul(networkFee.Wei(), big.NewInt(v.TotalRegisteredEffectiveBalance))
+		feeFromEB.Div(feeFromEB, unitBase)
+		feeCredit := new(big.Int).Mul(networkFee.Wei(), big.NewInt(int64(v.RegisteredDays)))
+		feeCredit.Div(feeCredit, big.NewInt(int64(roundDays)))
+		rawFee := new(big.Int).Sub(feeFromEB, feeCredit)
+		if rawFee.Sign() < 0 {
+			rawFee.SetInt64(0)
 		}
 
-		totalRoundRewards.Add(totalRoundRewards, participation.reward)
+		bases[i] = base
+		rawFees[i] = rawFee
+		sumBase.Add(sumBase, base)
+
+		// For logs: original (pre-cap) net = base − min(rawFee, base)
+		minFee := new(big.Int)
+		if base.Cmp(rawFee) <= 0 {
+			minFee.Set(base)
+		} else {
+			minFee.Set(rawFee)
+		}
+		originalRewardsWei.Add(originalRewardsWei, new(big.Int).Sub(base, minFee))
 	}
 
-	originalRewards := precise.NewETH(nil).SetWei(totalRoundRewards)
-	finalRewards := originalRewards
-
-	// Apply inflation cap if exceeded
-	if round.InflationCap != nil && totalRoundRewards.Cmp(round.InflationCap.Wei()) > 0 {
-		scaleRewards(validatorParticipations, round.InflationCap, totalRoundRewards)
-		finalRewards = round.InflationCap
+	finalRewardsWei := big.NewInt(0)
+	var capWei *big.Int
+	if round.InflationCap != nil && round.InflationCap.Wei().Sign() > 0 {
+		capWei = round.InflationCap.Wei()
 	}
+
+	for i, v := range validatorParticipations {
+		base := bases[i]
+
+		// Scale base toward the cap if needed (proportional share)
+		if capWei != nil && sumBase.Sign() > 0 && sumBase.Cmp(capWei) == 1 {
+			base = new(big.Int).Mul(base, capWei)
+			base.Div(base, sumBase)
+		}
+
+		// Deduct fees last
+		rawFee := rawFees[i]
+		if base.Cmp(rawFee) <= 0 {
+			v.feeDeduction = new(big.Int).Set(base)
+			v.reward = big.NewInt(0)
+		} else {
+			v.feeDeduction = new(big.Int).Set(rawFee)
+			v.reward = new(big.Int).Sub(base, rawFee)
+		}
+		finalRewardsWei.Add(finalRewardsWei, v.reward)
+	}
+
+	originalRewards := precise.NewETH(nil).SetWei(originalRewardsWei)
+	finalRewards := precise.NewETH(nil).SetWei(finalRewardsWei)
 
 	ownerParticipations := c.aggregateByOwner(validatorParticipations)
 	recipientParticipations := c.aggregateByRecipient(validatorParticipations)
