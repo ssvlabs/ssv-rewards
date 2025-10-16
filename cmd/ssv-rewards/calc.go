@@ -621,19 +621,13 @@ func (c *CalcCmd) processRound(
 	//    rate down so Σbase fits under the cap.
 	// 3) Re-run the standard per-validator calculation with the (possibly) scaled
 	//    daily reward. Fees remain calculated exactly the same way as before.
-	unitBase := new(big.Int).Mul(rewards.BaseEffectiveBalance.Gwei(), big.NewInt(int64(roundDays))) // 32e9 Gwei * roundDays
-	rewardTier := new(big.Int).Mul(dailyReward, big.NewInt(int64(roundDays)))                       // dailyReward (wei) * roundDays
-
+	// Note: baseᵢ = finalRewardᵢ + finalFeeᵢ by construction in calculateReward,
+	// so we derive Σbase via (r + fee) per validator to avoid duplicating math.
 	totalBase := big.NewInt(0)
 	originalRewardsWei := big.NewInt(0)
 	for _, v := range validatorParticipations {
-		// Base pot for this validator (before fees):
-		base := new(big.Int).Mul(rewardTier, big.NewInt(v.TotalActiveEffectiveBalance))
-		base.Div(base, unitBase)
-		totalBase.Add(totalBase, base)
-
-		// Original (uncapped) net reward for reporting only (no writes here):
-		r, _, err := c.calculateReward(
+		// Original (uncapped) deductedReward/fee for reporting and to derive base = deductedReward + fee.
+		deductedReward, fee, err := c.calculateReward(
 			v.TotalActiveEffectiveBalance,
 			v.TotalRegisteredEffectiveBalance,
 			v.RegisteredDays,
@@ -644,7 +638,9 @@ func (c *CalcCmd) processRound(
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate original validator reward: %w", err)
 		}
-		originalRewardsWei.Add(originalRewardsWei, r)
+		originalRewardsWei.Add(originalRewardsWei, deductedReward)
+		baseReward := new(big.Int).Add(new(big.Int).Set(deductedReward), fee)
+		totalBase.Add(totalBase, baseReward)
 	}
 
 	// Scale the daily reward rate if a cap applies and Σbase would exceed it.
