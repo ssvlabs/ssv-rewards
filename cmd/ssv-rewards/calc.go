@@ -615,19 +615,12 @@ func (c *CalcCmd) processRound(
 	roundDays := round.Period.Days()
 	networkFee := round.NetworkFee
 
-	// 1) Compute the total "base" (pre-fee) across validators using the current
-	//    daily reward rate. Also sum the original (uncapped) net rewards for logs.
-	// 2) If there is a monthly cap and Σbase exceeds it, scale the daily reward
-	//    rate down so Σbase fits under the cap.
-	// 3) Re-run the standard per-validator calculation with the (possibly) scaled
-	//    daily reward. Fees remain calculated exactly the same way as before.
-	// Note: baseᵢ = finalRewardᵢ + finalFeeᵢ by construction in calculateReward,
-	// so we derive Σbase via (r + fee) per validator to avoid duplicating math.
-	totalBase := big.NewInt(0)
+	// Compute the total base reward (without fee reduction),
+	// and the total rewards with fee reduction (for logging).
+	totalBaseReward := big.NewInt(0)
 	originalRewardsWei := big.NewInt(0)
 	for _, v := range validatorParticipations {
-		// Original (uncapped) deductedReward/fee for reporting and to derive base = deductedReward + fee.
-		deductedReward, fee, err := c.calculateReward(
+		deductedReward, feeDeduction, err := c.calculateReward(
 			v.TotalActiveEffectiveBalance,
 			v.TotalRegisteredEffectiveBalance,
 			v.RegisteredDays,
@@ -639,18 +632,20 @@ func (c *CalcCmd) processRound(
 			return nil, fmt.Errorf("failed to calculate original validator reward: %w", err)
 		}
 		originalRewardsWei.Add(originalRewardsWei, deductedReward)
-		baseReward := new(big.Int).Add(new(big.Int).Set(deductedReward), fee)
-		totalBase.Add(totalBase, baseReward)
+
+		baseReward := new(big.Int).Add(deductedReward, feeDeduction)
+		totalBaseReward.Add(totalBaseReward, baseReward)
 	}
 
-	// Scale the daily reward rate if a cap applies and Σbase would exceed it.
+	// Scale the daily reward rate, if needed.
 	scaledDailyReward := new(big.Int).Set(dailyReward)
-	if round.InflationCap != nil && round.InflationCap.Wei().Sign() > 0 && totalBase.Sign() > 0 && totalBase.Cmp(round.InflationCap.Wei()) > 0 {
+	if round.InflationCap != nil && round.InflationCap.Wei().Sign() > 0 &&
+		totalBaseReward.Sign() > 0 && totalBaseReward.Cmp(round.InflationCap.Wei()) > 0 {
 		scaledDailyReward.Mul(scaledDailyReward, round.InflationCap.Wei())
-		scaledDailyReward.Div(scaledDailyReward, totalBase)
+		scaledDailyReward.Div(scaledDailyReward, totalBaseReward)
 	}
 
-	// Final pass: compute rewards/fees with the (possibly) scaled daily reward.
+	// Compute rewards/fees with the (potentially) scaled daily reward.
 	totalRoundRewards := big.NewInt(0)
 	for _, v := range validatorParticipations {
 		var err error
