@@ -1,5 +1,5 @@
 /pgdata
 /data
 /rewards
-
+node_modules
 *.dump
