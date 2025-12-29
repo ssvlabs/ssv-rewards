@@ -23,7 +23,7 @@ func (c Criteria) Validate() error {
 		return fmt.Errorf("missing or invalid min_attestations_per_day in criteria")
 	}
 
-	if c.MinDecidedsPerDay <= 0 {
+	if c.MinDecidedsPerDay < 0 {
 		return fmt.Errorf("missing or invalid min_decideds_per_day in criteria")
 	}
 
