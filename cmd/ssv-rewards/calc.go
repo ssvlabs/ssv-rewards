@@ -24,6 +24,11 @@ import (
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 )
 
+// tierCalculationCutoff is the period from which the new tier calculation applies.
+// Before this: total EB is sum of average EB per validator (TotalActiveEB / ActiveDays).
+// From this period: total EB is average daily EB (Sum(TotalActiveEB) / PeriodDays).
+var tierCalculationCutoff = rewards.NewPeriod(2025, 11)
+
 type CalcCmd struct {
 	Dir                 string `default:"./rewards" help:"Path to save the rewards to,"`
 	PerformanceProvider string `default:"beaconcha" help:"Performance provider to use." enum:"beaconcha,e2m"`
@@ -508,7 +513,7 @@ func (c *CalcCmd) processRoundLegacy(
 		return nil, fmt.Errorf("failed to get recipient participations: %w", err)
 	}
 
-	totalEffectiveBalance := c.calculateTotalEffectiveBalance(validatorParticipations)
+	totalEffectiveBalance := c.calculateTotalEffectiveBalanceLegacy(validatorParticipations)
 	tier, err := c.plan.Tier(round.Period, totalEffectiveBalance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tier: %w", err)
@@ -601,7 +606,12 @@ func (c *CalcCmd) processRound(
 		return nil, fmt.Errorf("failed to get validator participations: %w", err)
 	}
 
-	totalEffectiveBalance := c.calculateTotalEffectiveBalance(validatorParticipations)
+	var totalEffectiveBalance *precise.ETH
+	if round.Period.Before(tierCalculationCutoff) {
+		totalEffectiveBalance = c.calculateTotalEffectiveBalanceLegacy(validatorParticipations)
+	} else {
+		totalEffectiveBalance = c.calculateTotalEffectiveBalance(validatorParticipations, round.Period.Days())
+	}
 	tier, err := c.plan.Tier(round.Period, totalEffectiveBalance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tier: %w", err)
@@ -639,7 +649,7 @@ func (c *CalcCmd) processRound(
 
 	// Scale the daily reward rate, if needed.
 	scaledDailyReward := new(big.Int).Set(dailyReward)
-	if round.InflationCap != nil && round.InflationCap.Wei().Sign() > 0 &&
+	if round.InflationCap != nil &&
 		totalBaseReward.Sign() > 0 && totalBaseReward.Cmp(round.InflationCap.Wei()) > 0 {
 		scaledDailyReward.Mul(scaledDailyReward, round.InflationCap.Wei())
 		scaledDailyReward.Div(scaledDailyReward, totalBaseReward)
@@ -680,7 +690,9 @@ func (c *CalcCmd) processRound(
 	}, nil
 }
 
-func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticipation) *precise.ETH {
+// calculateTotalEffectiveBalanceLegacy calculates total EB as sum of average EB per validator.
+// Used for periods before tierCalculationCutoff.
+func (c *CalcCmd) calculateTotalEffectiveBalanceLegacy(validators []*ValidatorParticipation) *precise.ETH {
 	var totalEffectiveBalanceGwei int64
 	for _, v := range validators {
 		if v.ActiveDays == 0 {
@@ -688,8 +700,17 @@ func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticip
 		}
 		totalEffectiveBalanceGwei += v.TotalActiveEffectiveBalance / int64(v.ActiveDays)
 	}
-
 	return precise.NewETH(nil).SetGwei(big.NewInt(totalEffectiveBalanceGwei))
+}
+
+// calculateTotalEffectiveBalance calculates total EB as average daily EB across the period.
+// Used for periods from tierCalculationCutoff onwards.
+func (c *CalcCmd) calculateTotalEffectiveBalance(validators []*ValidatorParticipation, periodDays int) *precise.ETH {
+	var totalActiveEBGwei int64
+	for _, v := range validators {
+		totalActiveEBGwei += v.TotalActiveEffectiveBalance
+	}
+	return precise.NewETH(nil).SetGwei(big.NewInt(totalActiveEBGwei / int64(periodDays)))
 }
 
 // scaleRewards applies proportional scaling to participation rewards when inflation cap is exceeded
