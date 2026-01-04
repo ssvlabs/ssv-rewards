@@ -16,8 +16,12 @@ import (
 )
 
 var (
-	// validatorETHBalance is the ETH balance of an Ethereum validator.
-	validatorETHBalance = precise.NewETH64(32)
+	// BaseEffectiveBalance is the base ETH effective balance of an Ethereum validator (32 ETH).
+	BaseEffectiveBalance = precise.NewETH64(32)
+
+	// defaultLegacyCalculationCutoff is the default cutoff period for legacy calculation methods.
+	// Set to 2025-08 to preserve merkle roots for already published periods.
+	defaultLegacyCalculationCutoff = NewPeriod(2025, 8)
 )
 
 type Plan struct {
@@ -32,8 +36,8 @@ type Plan struct {
 	// Periods from this date onwards use:
 	//   - Per-validator fee calculation before aggregation (correct for multi-validator recipients)
 	//   - Constant daily rewards (daily = annual/365, then monthly = daily * days_in_month)
-	// Default: 2025-08 (to preserve merkle roots for already published periods)
-	LegacyCalculationCutoff *Period `yaml:"legacy_calculation_cutoff,omitempty"`
+	// Default: defaultLegacyCalculationCutoff (2025-08)
+	LegacyCalculationCutoff Period `yaml:"legacy_calculation_cutoff,omitempty"`
 }
 
 // ParsePlan parses the given YAML document into a Plan.
@@ -42,20 +46,16 @@ func ParsePlan(data []byte) (*Plan, error) {
 	if err := yaml.Unmarshal(data, &plan); err != nil {
 		return nil, err
 	}
+
+	// Set default LegacyCalculationCutoff if not specified
+	if plan.LegacyCalculationCutoff.IsZero() {
+		plan.LegacyCalculationCutoff = defaultLegacyCalculationCutoff
+	}
+
 	if err := plan.validate(); err != nil {
 		return nil, err
 	}
 	return &plan, nil
-}
-
-// GetLegacyCalculationCutoff returns the cutoff period for legacy calculations.
-// If not configured, returns the default of 2025-08.
-func (p *Plan) GetLegacyCalculationCutoff() Period {
-	if p.LegacyCalculationCutoff != nil {
-		return *p.LegacyCalculationCutoff
-	}
-	// Default to 2025-08 if not configured
-	return NewPeriod(2025, 8)
 }
 
 func (p *Plan) validate() error {
@@ -78,13 +78,20 @@ func (p *Plan) validate() error {
 		if !sort.IsSorted(mechanics.Tiers) {
 			return errors.New("tiers are not sorted by max effective balance in mechanics")
 		}
-		if mechanics.Tiers[0].MaxEffectiveBalance == 0 {
-			return errors.New("max effective balance must be positive in mechanics")
+
+		for j, tier := range mechanics.Tiers {
+			if tier.MaxEffectiveBalance == nil || tier.MaxEffectiveBalance.Wei().Sign() <= 0 {
+				return fmt.Errorf("max effective balance must be positive in mechanics at tier %d", j)
+			}
+			if tier.APRBoost == nil || tier.APRBoost.Wei().Sign() < 0 {
+				return fmt.Errorf("apr_boost must be non-negative in mechanics at tier %d", j)
+			}
 		}
+
 		if len(mechanics.Tiers) > 1 {
 			for j := 1; j < len(mechanics.Tiers); j++ {
-				if mechanics.Tiers[j-1].MaxEffectiveBalance == mechanics.Tiers[j].MaxEffectiveBalance {
-					return fmt.Errorf("duplicate tier: %d in mechanics", mechanics.Tiers[j].MaxEffectiveBalance)
+				if mechanics.Tiers[j-1].MaxEffectiveBalance.Wei().Cmp(mechanics.Tiers[j].MaxEffectiveBalance.Wei()) == 0 {
+					return fmt.Errorf("duplicate tier: %s in mechanics", mechanics.Tiers[j].MaxEffectiveBalance.String())
 				}
 			}
 		}
@@ -125,12 +132,15 @@ func (p *Plan) validate() error {
 	if !sort.IsSorted(p.Rounds) {
 		return errors.New("rounds are not sorted by period")
 	}
-	for i := 1; i < len(p.Rounds); i++ {
-		round := p.Rounds[i-1]
+	for i := 0; i < len(p.Rounds); i++ {
+		round := p.Rounds[i]
 		if round.NetworkFee != nil && round.NetworkFee.Wei().Sign() < 0 {
 			return fmt.Errorf("network_fee cannot be negative in round %s", round.Period)
 		}
-		if p.Rounds[i-1].Period == p.Rounds[i].Period {
+		if round.InflationCap != nil && round.InflationCap.Wei().Sign() <= 0 {
+			return fmt.Errorf("inflation_cap must be positive if specified in round %s", round.Period)
+		}
+		if i > 0 && p.Rounds[i-1].Period == p.Rounds[i].Period {
 			return fmt.Errorf("duplicate round: %s", p.Rounds[i].Period)
 		}
 	}
@@ -146,8 +156,8 @@ func (p *Plan) ValidatorRewardsLegacy(
 ) (daily, monthly, annual *big.Int, err error) {
 	for _, round := range p.Rounds {
 		if round.Period == period {
-			// (validatorETHBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost
-			annualETH := precise.NewETH(nil).Mul(validatorETHBalance, round.ETHAPR)
+			// (BaseEffectiveBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost
+			annualETH := precise.NewETH(nil).Mul(BaseEffectiveBalance, round.ETHAPR)
 			annualETH.Quo(annualETH, round.SSVETH)
 			annualETH.Mul(annualETH, tier.APRBoost)
 			annual = annualETH.Wei()
@@ -172,8 +182,8 @@ func (p *Plan) ValidatorRewards(
 ) (daily, monthly, annual *big.Int, err error) {
 	for _, round := range p.Rounds {
 		if round.Period == period {
-			// (validatorETHBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost
-			annualETH := precise.NewETH(nil).Mul(validatorETHBalance, round.ETHAPR)
+			// (BaseEffectiveBalance * round.ETHAPR) / round.SSVETH * tier.APRBoost
+			annualETH := precise.NewETH(nil).Mul(BaseEffectiveBalance, round.ETHAPR)
 			annualETH.Quo(annualETH, round.SSVETH)
 			annualETH.Mul(annualETH, tier.APRBoost)
 			annual = annualETH.Wei()
@@ -190,22 +200,17 @@ func (p *Plan) ValidatorRewards(
 	return
 }
 
-func (p *Plan) Tier(period Period, totalEffectiveBalanceGwei int64) (*Tier, error) {
-	if totalEffectiveBalanceGwei <= 0 {
+func (p *Plan) Tier(period Period, totalEffectiveBalance *precise.ETH) (*Tier, error) {
+	if totalEffectiveBalance == nil || totalEffectiveBalance.Wei().Sign() <= 0 {
 		return nil, errors.New("totalEffectiveBalance must be positive")
 	}
 	mechanics, err := p.Mechanics.At(period)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mechanics: %w", err)
 	}
-	if !sort.IsSorted(mechanics.Tiers) {
-		return nil, errors.New("tiers aren't sorted")
-	}
-
-	totalEffectiveBalance := totalEffectiveBalanceGwei / 1e9 // Convert Gwei to Wei
 
 	for _, tier := range mechanics.Tiers {
-		if totalEffectiveBalance <= tier.MaxEffectiveBalance {
+		if totalEffectiveBalance.Wei().Cmp(tier.MaxEffectiveBalance.Wei()) <= 0 {
 			return &tier, nil
 		}
 	}
@@ -213,16 +218,17 @@ func (p *Plan) Tier(period Period, totalEffectiveBalanceGwei int64) (*Tier, erro
 }
 
 type Round struct {
-	Period     Period       `yaml:"period"`
-	ETHAPR     *precise.ETH `yaml:"eth_apr"`
-	SSVETH     *precise.ETH `yaml:"ssv_eth"`
-	NetworkFee *precise.ETH `yaml:"network_fee,omitempty"`
+	Period       Period       `yaml:"period"`
+	ETHAPR       *precise.ETH `yaml:"eth_apr"`
+	SSVETH       *precise.ETH `yaml:"ssv_eth"`
+	NetworkFee   *precise.ETH `yaml:"network_fee,omitempty"`
+	InflationCap *precise.ETH `yaml:"inflation_cap,omitempty"`
 }
 
 type Rounds []Round
 
 func (r Rounds) Len() int           { return len(r) }
-func (r Rounds) Less(i, j int) bool { return time.Time(r[i].Period).Before(time.Time(r[j].Period)) }
+func (r Rounds) Less(i, j int) bool { return r[i].Period.Before(r[j].Period) }
 func (r Rounds) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 
 func loadOwnerRedirectsFromCSV(filePath string) (OwnerRedirects, error) {
