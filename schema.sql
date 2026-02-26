@@ -35,8 +35,14 @@ CREATE TABLE IF NOT EXISTS validators (
 	beacon_exit_epoch INT,
 	beacon_slashed BOOLEAN,
 	beacon_withdrawable_epoch INT,
+	-- NULL = SSV tree. Non-NULL = ETH tree from this day onward.
+	-- Set by ClusterMigratedToETH (cluster's migration day) or
+	-- post-upgrade ValidatorAdded (the add day).
+	migration_day DATE,
 	PRIMARY KEY (public_key)
 );
+
+ALTER TABLE validators ADD COLUMN IF NOT EXISTS migration_day DATE;
 
 CREATE TABLE IF NOT EXISTS validator_events (
     id SERIAL PRIMARY KEY,

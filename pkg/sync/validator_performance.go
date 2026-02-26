@@ -28,6 +28,7 @@ import (
 
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/performance"
 )
@@ -189,7 +190,7 @@ func SyncValidatorPerformance(
 				}
 			case eventparser.ValidatorRemoved:
 				delete(activeValidators, pk)
-			case eventparser.ClusterLiquidated, eventparser.ClusterReactivated:
+			case eventparser.ClusterLiquidated, eventparser.ClusterReactivated, rewards.ClusterMigratedToETHEvent:
 				// Ignore.
 			default:
 				return fmt.Errorf("unexpected validator event: %s", event.EventName)

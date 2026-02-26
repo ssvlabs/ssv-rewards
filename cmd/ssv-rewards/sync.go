@@ -241,6 +241,7 @@ func (c *SyncCmd) Run(
 		nodeStorage,
 		db,
 		cl,
+		plan.StakingUpgrade,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to sync validator events: %w", err)
