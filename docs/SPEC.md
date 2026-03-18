@@ -42,7 +42,7 @@ The end-to-end flow is: contract logs are fetched from the execution layer and s
 ## 2. Key Concepts
 
 **Round**
-: A single month's reward period, identified by a `YYYY-MM` period string. Contains `eth_apr`, `ssv_eth`, optional `network_fee`, and optional `inflation_cap`.
+: A single month's reward period, identified by a `YYYY-MM` period string. Contains `eth_apr` (consensus layer ETH staking APR as a decimal fraction), `ssv_eth` (SSV/ETH price), optional `network_fee` (in SSV), and optional `inflation_cap` (in SSV tokens).
 
 **Period**
 : A `YYYY-MM` date representing a calendar month. Determines the day range (`FirstDay` to `LastDay`) and the number of days in the round (`Days()`).
@@ -150,18 +150,20 @@ Where `BaseEffectiveBalance = 32 ETH` (in 18-decimal precision).
 
 ### 6.2 Daily Reward Rate
 
+Where `roundDays` is the number of days in the round's calendar month (`round.Period.Days()` in code).
+
 **Legacy** (periods before `legacy_calculation_cutoff`, default `2025-08`):
 
 ```
 monthly = annual / 12
-daily   = monthly / days_in_month
+daily   = monthly / roundDays
 ```
 
 **Modern** (periods from `legacy_calculation_cutoff` onwards):
 
 ```
 daily   = annual / 365
-monthly = daily * days_in_month
+monthly = daily * roundDays
 ```
 
 ### 6.3 Base Reward
@@ -332,7 +334,7 @@ Validator redirect takes priority over owner redirect, which takes priority over
 `legacy_calculation_cutoff` (default: `2025-08`) separates two calculation modes:
 
 **Legacy (periods before cutoff):**
-- Daily reward varies by month length: `annual / 12 / days_in_month`.
+- Daily reward varies by month length: `annual / 12 / roundDays`.
 - Fees are computed on SQL-aggregated rows (after grouping by recipient). This causes incorrect fee calculation for recipients with multiple validators, but preserves published Merkle roots.
 - Inflation cap scaling is applied post-hoc by proportionally reducing final rewards.
 - `processRoundLegacy` always passes `migration_filter = 'ssv'` and never produces ETH tree output (`ethResults` is always `nil`).
