@@ -42,7 +42,7 @@ The end-to-end flow is: contract logs are fetched from the execution layer and s
 ## 2. Key Concepts
 
 **Round**
-: A single month's reward period, identified by a `YYYY-MM` period string. Contains `eth_apr` (consensus layer ETH staking APR as a decimal fraction), `ssv_eth` (SSV/ETH price), optional `network_fee` (in SSV), and optional `inflation_cap` (in SSV tokens).
+: A single month's reward period, identified by a `YYYY-MM` period string. Contains `eth_apr` (consensus layer ETH staking APR as a decimal fraction), `ssv_eth` (price of 1 SSV in ETH), optional `network_fee` (in SSV), and optional `inflation_cap` (in SSV tokens).
 
 **Period**
 : A `YYYY-MM` date representing a calendar month. Determines the day range (`FirstDay` to `LastDay`) and the number of days in the round (`Days()`).
@@ -51,7 +51,7 @@ The end-to-end flow is: contract logs are fetched from the execution layer and s
 : A versioned configuration block (keyed by `since` period) that defines tiers, activity criteria, redirects, Pectra support, and the network fee address. The mechanics active for a round are the latest whose `since <= round.period`.
 
 **Tier**
-: A threshold defined by `max_effective_balance` (in ETH) and `apr_boost`. The total effective balance of all participating validators determines which tier applies.
+: An ordered pair of `(max_effective_balance, apr_boost)`. The first tier where the total effective balance of all participants ≤ `max_effective_balance` is selected; its `apr_boost` (a percentage, e.g. `0.10` = 10%) determines the reward rate. See §7.
 
 **Active Day**
 : A validator-day where `attestations_executed >= min_attestations_per_day` AND `decideds >= min_decideds_per_day` AND `solvent_whole_day = true`.
@@ -169,7 +169,7 @@ monthly = daily * roundDays
 ### 6.3 Base Reward
 
 ```
-unitBase      = BaseEffectiveBalance_gwei * roundDays    // 32e9 * roundDays
+unitBase      = BaseEffectiveBalance_gwei * roundDays
 rewardTier    = dailyReward * roundDays
 
 baseReward_i  = (rewardTier * wActiveEB_i) / unitBase
