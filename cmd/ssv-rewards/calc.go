@@ -387,7 +387,11 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			if err := exportCSV(ethRPs, filepath.Join(roundDir, "by-recipient-eth.csv")); err != nil {
 				return fmt.Errorf("export ETH recipient rewards: %w", err)
 			}
+		}
 
+		// Write cumulative ETH rewards for every round that has accumulated
+		// totals, even when the current round has no new ETH participations.
+		if len(ethTotalByRecipient) > 0 {
 			ethTotalRewards := map[string]string{}
 			for _, p := range ethTotalByRecipient {
 				ethTotalRewards["0x"+p.RecipientAddress] = p.reward.String()
