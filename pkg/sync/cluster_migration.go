@@ -121,15 +121,16 @@ func handleClusterMigration(
 	// Look up affected validators.
 	shares := nodeStorage.Shares().List(nil, registrystorage.ByClusterID(clusterID))
 
-	// Validate share count against on-chain validatorCount.
 	if len(shares) == 0 && validatorCount == 0 {
 		logger.Warn("migrated cluster has no validators",
 			zap.String("cluster_id", clusterIDStr),
 			zap.String("owner", strings.ToLower(owner.Hex())),
 		)
 	} else if len(shares) != int(validatorCount) {
-		return fmt.Errorf("share count (%d) differs from validatorCount (%d) for cluster %s — run: sync --fresh --keep-cache",
-			len(shares), validatorCount, clusterIDStr)
+		logger.Warn("share count differs from on-chain validatorCount",
+			zap.String("cluster_id", clusterIDStr),
+			zap.Int("local_shares", len(shares)),
+			zap.Uint32("chain_validator_count", validatorCount))
 	}
 
 	migrationDay := contractEvent.BlockTime.UTC().Truncate(24 * time.Hour)
