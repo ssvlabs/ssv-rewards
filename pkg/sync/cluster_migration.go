@@ -1,17 +1,18 @@
 package sync
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
 	"time"
 
-	operatorstorage "github.com/bloxapp/ssv/operator/storage"
+	"github.com/bloxapp/ssv/eth/eventparser"
 	ssvtypes "github.com/bloxapp/ssv/protocol/v2/types"
-	registrystorage "github.com/bloxapp/ssv/registry/storage"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -62,13 +63,13 @@ var clusterMigratedToETHABI = func() abi.Event {
 	return parsed.Events["ClusterMigratedToETH"]
 }()
 
-// handleClusterMigration processes a ClusterMigratedToETH event by setting migration_day
-// on all validators in the cluster and inserting validator_events records.
+// handleClusterMigration processes a ClusterMigratedToETH event by setting
+// migration_day on all validators in the cluster and inserting validator_events
+// records.
 func handleClusterMigration(
 	ctx context.Context,
 	logger *zap.Logger,
 	db *sql.DB,
-	nodeStorage operatorstorage.Storage,
 	log *types.Log,
 	contractEvent *models.ContractEvent,
 	migratedClusters map[string]struct{},
@@ -76,20 +77,16 @@ func handleClusterMigration(
 	if len(log.Topics) < 2 {
 		return fmt.Errorf("malformed ClusterMigratedToETH log: expected >= 2 topics, got %d", len(log.Topics))
 	}
-
-	// Parse owner from Topics[1] (indexed address, padded to 32 bytes).
 	owner := common.BytesToAddress(log.Topics[1].Bytes())
 
-	// Decode non-indexed event data.
 	decoded, err := clusterMigratedToETHABI.Inputs.Unpack(log.Data)
 	if err != nil {
 		return fmt.Errorf("decode ClusterMigratedToETH data: %w", err)
 	}
 	operatorIds := decoded[0].([]uint64)
 
-	// Decode validatorCount from cluster tuple (6th event param, first field).
-	clusterData := decoded[4]
-	clusterStruct, ok := clusterData.(struct {
+	// validatorCount lives in the cluster tuple (5th non-indexed input, first field).
+	clusterStruct, ok := decoded[4].(struct {
 		ValidatorCount  uint32   `json:"validatorCount"`
 		NetworkFeeIndex uint64   `json:"networkFeeIndex"`
 		Index           uint64   `json:"index"`
@@ -97,20 +94,18 @@ func handleClusterMigration(
 		Balance         *big.Int `json:"balance"`
 	})
 	if !ok {
-		return fmt.Errorf("unexpected cluster tuple type: %T", clusterData)
+		return fmt.Errorf("unexpected cluster tuple type: %T", decoded[4])
 	}
 	validatorCount := clusterStruct.ValidatorCount
 
-	// Compute cluster ID.
 	clusterID, err := ssvtypes.ComputeClusterIDHash(owner.Bytes(), operatorIds)
 	if err != nil {
 		return fmt.Errorf("compute cluster ID: %w", err)
 	}
 	clusterIDStr := hex.EncodeToString(clusterID)
 
-	// In-memory dedup: warn on duplicate within same sync run.
 	if _, exists := migratedClusters[clusterIDStr]; exists {
-		logger.Warn("duplicate ClusterMigratedToETH in same sync run (A4 invariant)",
+		logger.Warn("duplicate ClusterMigratedToETH in same sync run",
 			zap.String("cluster_id", clusterIDStr),
 			zap.Uint64("block_number", log.BlockNumber),
 		)
@@ -118,34 +113,37 @@ func handleClusterMigration(
 	}
 	migratedClusters[clusterIDStr] = struct{}{}
 
-	// Look up affected validators.
-	shares := nodeStorage.Shares().List(nil, registrystorage.ByClusterID(clusterID))
+	members, err := computeClusterMembersAt(
+		ctx, db, owner, clusterID, int(log.BlockNumber), int(log.Index),
+	)
+	if err != nil {
+		return fmt.Errorf("compute cluster members at migration position: %w", err)
+	}
 
-	if len(shares) == 0 && validatorCount == 0 {
+	if len(members) == 0 && validatorCount == 0 {
 		logger.Warn("migrated cluster has no validators",
 			zap.String("cluster_id", clusterIDStr),
 			zap.String("owner", strings.ToLower(owner.Hex())),
 		)
-	} else if len(shares) != int(validatorCount) {
-		logger.Warn("share count differs from on-chain validatorCount",
+		return nil
+	} else if len(members) != int(validatorCount) {
+		logger.Warn("local member count differs from on-chain validatorCount",
 			zap.String("cluster_id", clusterIDStr),
-			zap.Int("local_shares", len(shares)),
+			zap.Int("local_members", len(members)),
 			zap.Uint32("chain_validator_count", validatorCount))
 	}
 
 	migrationDay := contractEvent.BlockTime.UTC().Truncate(24 * time.Hour)
 
-	// Wrap all DB writes in a single transaction.
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	for _, share := range shares {
-		pubKey := hex.EncodeToString(share.ValidatorPubKey)
-
-		// Set migration_day. IS NULL guard prevents overwriting on cross-run duplicates.
+	for _, pubKey := range members {
+		// IS NULL guard preserves an earlier migration_day if the validator
+		// already transitioned to the ETH tree via a prior cluster.
 		_, err := models.Validators(
 			models.ValidatorWhere.PublicKey.EQ(pubKey),
 			models.ValidatorWhere.MigrationDay.IsNull(),
@@ -173,4 +171,109 @@ func handleClusterMigration(
 	}
 
 	return tx.Commit()
+}
+
+// computeClusterMembersAt returns the public keys of validators in the cluster
+// identified by targetClusterID at the chain position (migBlock, migLogIndex),
+// derived from validator_events ordered by (block_number, log_index).
+//
+// A pubkey is a member if the latest of its ValidatorAdded/ValidatorRemoved
+// events whose cluster_id matches targetClusterID and whose position is strictly
+// before (migBlock, migLogIndex) is a ValidatorAdded.
+func computeClusterMembersAt(
+	ctx context.Context,
+	db *sql.DB,
+	owner common.Address,
+	targetClusterID []byte,
+	migBlock, migLogIndex int,
+) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT ve.public_key, ve.event_name,
+		       ce.raw_event::jsonb -> 'OperatorIds' AS op_ids
+		FROM validator_events ve
+		JOIN contract_events ce ON ce.id = ve.contract_event_id
+		WHERE ve.owner_address = $1
+		  AND ve.event_name IN ('ValidatorAdded', 'ValidatorRemoved')
+		  AND (ve.block_number < $2
+		       OR (ve.block_number = $2 AND ve.log_index < $3))
+		ORDER BY ve.block_number, ve.log_index
+	`,
+		strings.ToLower(owner.Hex()[2:]),
+		migBlock, migLogIndex,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query cluster member events: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	events := make([]clusterMemberEvent, 0)
+	for rows.Next() {
+		var (
+			pubKey, eventName string
+			opIdsJSON         []byte
+		)
+		if err := rows.Scan(&pubKey, &eventName, &opIdsJSON); err != nil {
+			return nil, fmt.Errorf("scan cluster member event: %w", err)
+		}
+
+		var ops []uint64
+		if err := json.Unmarshal(opIdsJSON, &ops); err != nil {
+			return nil, fmt.Errorf("unmarshal operator ids: %w", err)
+		}
+
+		events = append(events, clusterMemberEvent{
+			PublicKey: pubKey,
+			EventName: eventName,
+			OperatorIds: ops,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cluster member events: %w", err)
+	}
+
+	return reduceClusterMembers(owner, targetClusterID, events)
+}
+
+// clusterMemberEvent is a decoded ValidatorAdded or ValidatorRemoved event,
+// shaped for consumption by reduceClusterMembers without a DB or ABI dependency.
+type clusterMemberEvent struct {
+	PublicKey   string
+	EventName   string
+	OperatorIds []uint64
+}
+
+// reduceClusterMembers walks events in order and returns the public keys
+// currently in targetClusterID: a pubkey is a member if its latest event
+// whose computed cluster_id equals targetClusterID is a ValidatorAdded.
+func reduceClusterMembers(
+	owner common.Address,
+	targetClusterID []byte,
+	events []clusterMemberEvent,
+) ([]string, error) {
+	members := map[string]struct{}{}
+	for _, ev := range events {
+		// ComputeClusterIDHash sorts operatorIds in place; copy to avoid
+		// mutating the caller's slice.
+		ops := append([]uint64(nil), ev.OperatorIds...)
+		cid, err := ssvtypes.ComputeClusterIDHash(owner.Bytes(), ops)
+		if err != nil {
+			return nil, fmt.Errorf("compute cluster id: %w", err)
+		}
+		if !bytes.Equal(cid, targetClusterID) {
+			continue
+		}
+
+		switch ev.EventName {
+		case eventparser.ValidatorAdded:
+			members[ev.PublicKey] = struct{}{}
+		case eventparser.ValidatorRemoved:
+			delete(members, ev.PublicKey)
+		}
+	}
+
+	out := make([]string, 0, len(members))
+	for pk := range members {
+		out = append(out, pk)
+	}
+	return out, nil
 }

@@ -332,7 +332,7 @@ func recordHandledEvents(
 			if eventTrace.Error != nil {
 				// Check if this is a ClusterMigratedToETH event we can handle ourselves.
 				if len(eventTrace.Log.Topics) > 0 && eventTrace.Log.Topics[0] == rewards.ClusterMigratedToETHTopic {
-					if err := handleClusterMigration(ctx, logger, db, nodeStorage, eventTrace.Log, databaseEvent, migratedClusters); err != nil {
+					if err := handleClusterMigration(ctx, logger, db, eventTrace.Log, databaseEvent, migratedClusters); err != nil {
 						return fmt.Errorf("handle cluster migration: %w", err)
 					}
 					// Clear the error and set event_name since we handled it.
