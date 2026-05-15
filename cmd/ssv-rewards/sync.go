@@ -236,8 +236,8 @@ func (c *SyncCmd) Run(
 		if err != nil {
 			return fmt.Errorf("failed to sync contract events: %w", err)
 		}
-		memSampler.Snapshot("after-contract-events")
 	}
+	memSampler.Snapshot("after-contract-events")
 
 	// Sync validator events.
 	err = sync.SyncValidatorEvents(

@@ -213,6 +213,8 @@ func SyncValidatorPerformance(
 				return fmt.Errorf("validator performance mismatch: %d-%d != %d-%d", existing.FromEpoch, existing.ToEpoch, fromEpoch, toEpoch)
 			}
 			bar.Add(1)
+			memprofile.PerformanceDay(ctx, day, performanceDayIndex)
+			performanceDayIndex++
 			continue
 		}
 
