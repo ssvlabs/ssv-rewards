@@ -27,6 +27,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/memprofile"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/bloxapp/ssv-rewards/pkg/sync/httpretry"
@@ -147,6 +148,7 @@ func SyncValidatorPerformance(
 		inMemorySSVCacheMu sync.Mutex
 	)
 
+	performanceDayIndex := 0
 	for day := fromDay; !day.After(toDay); day = day.AddDate(0, 0, 1) {
 		bar.Describe(day.Format("2006-01-02"))
 		totalDays++
@@ -442,6 +444,9 @@ func SyncValidatorPerformance(
 			zap.Duration("commit_duration", commitDuration),
 			zap.Duration("beaconcha_total_duration", beaconchaDuration),
 		)
+
+		memprofile.PerformanceDay(ctx, day, performanceDayIndex)
+		performanceDayIndex++
 	}
 	bar.Clear()
 	logger.Info("Fetched validator performance",

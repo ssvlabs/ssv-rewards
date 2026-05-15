@@ -41,3 +41,9 @@ services:
       POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@postgres/${POSTGRES_DB:-ssv-rewards}?sslmode=disable
     volumes:
       - ./:/app
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "1420"

@@ -27,6 +27,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
+	"github.com/bloxapp/ssv-rewards/pkg/memprofile"
 	"github.com/bloxapp/ssv-rewards/pkg/models"
 	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 	"github.com/bloxapp/ssv-rewards/pkg/sync"
@@ -58,7 +59,12 @@ func (c *SyncCmd) Run(
 	network networkconfig.NetworkConfig,
 	plan *rewards.Plan,
 ) error {
-	ctx := context.Background()
+	memSampler := memprofile.FromEnv(logger)
+	ctx := memprofile.WithContext(context.Background(), memSampler)
+	if memSampler.Enabled() {
+		memSampler.Snapshot("sync-start")
+		defer memSampler.Snapshot("sync-done")
+	}
 
 	dataDir := filepath.Join(c.DataDir, network.Name)
 	logger.Info(
@@ -230,6 +236,7 @@ func (c *SyncCmd) Run(
 		if err != nil {
 			return fmt.Errorf("failed to sync contract events: %w", err)
 		}
+		memSampler.Snapshot("after-contract-events")
 	}
 
 	// Sync validator events.
@@ -246,6 +253,7 @@ func (c *SyncCmd) Run(
 	if err != nil {
 		return fmt.Errorf("failed to sync validator events: %w", err)
 	}
+	memSampler.Snapshot("after-validator-events")
 
 	// Sync validator performance.
 	var performanceProvider performance.Provider
@@ -270,6 +278,7 @@ func (c *SyncCmd) Run(
 	if err := os.MkdirAll(ssvCacheDir, 0755); err != nil {
 		return fmt.Errorf("failed to create SSV cache directory: %w", err)
 	}
+	memSampler.Snapshot("before-validator-performance")
 	err = sync.SyncValidatorPerformance(
 		ctx,
 		logger,
@@ -286,6 +295,7 @@ func (c *SyncCmd) Run(
 	if err != nil {
 		return fmt.Errorf("failed to sync validator performance: %w", err)
 	}
+	memSampler.Snapshot("after-validator-performance")
 
 	return nil
 }
