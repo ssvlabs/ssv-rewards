@@ -54,6 +54,32 @@ func TestPerformanceDayInterval(t *testing.T) {
 	}
 }
 
+func TestDefaultDir(t *testing.T) {
+	t.Parallel()
+	if got := DefaultDir("mainnet"); got != filepath.Join(".", "memprofile", "mainnet") {
+		t.Fatalf("DefaultDir() = %q", got)
+	}
+}
+
+func TestStart(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MEMPROFILE_DIR", dir)
+
+	ctx, phase := Start(zap.NewNop())
+	phase("after-contract-events")
+
+	if FromContext(ctx) == nil {
+		t.Fatal("expected sampler in context")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) < 2 {
+		t.Fatalf("expected at least 2 heap files, got %d", len(entries))
+	}
+}
+
 func TestDisabledSampler(t *testing.T) {
 	t.Parallel()
 	s := &Sampler{}

@@ -29,6 +29,24 @@ type Sampler struct {
 	seq          int
 }
 
+// DefaultDir returns the recommended profile directory for a network. It lives outside
+// DATA_DIR so --fresh / --keep-cache wipes do not remove heap snapshots.
+func DefaultDir(network string) string {
+	return filepath.Join(".", "memprofile", network)
+}
+
+// Start enables profiling when MEMPROFILE_DIR is set and returns ctx plus a phase
+// callback for named snapshots (no-op when disabled).
+func Start(logger *zap.Logger) (context.Context, func(string)) {
+	s := FromEnv(logger)
+	ctx := WithContext(context.Background(), s)
+	if !s.Enabled() {
+		return ctx, func(string) {}
+	}
+	s.Snapshot("sync-start")
+	return ctx, s.Snapshot
+}
+
 // FromEnv returns a sampler when MEMPROFILE_DIR is set; otherwise a disabled sampler.
 func FromEnv(logger *zap.Logger) *Sampler {
 	dir := strings.TrimSpace(os.Getenv("MEMPROFILE_DIR"))
