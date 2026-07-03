@@ -141,6 +141,7 @@ func (c *SyncCmd) Run(
 		ctx,
 		c.ExecutionEndpoint,
 		common.HexToAddress(network.RegistryContractAddr),
+		executionclient.WithLogBatchSize(1000),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to connect to execution node: %w", err)
