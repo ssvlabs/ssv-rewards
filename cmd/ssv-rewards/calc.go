@@ -176,9 +176,18 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		totalByValidator = map[string]*ValidatorParticipation{}
 		totalByOwner     = map[string]*OwnerParticipation{}
 		totalByRecipient = map[string]*RecipientParticipation{}
+
+		// ETH tree accumulators (used when StakingUpgrade is configured).
+		ethByValidator      []*ValidatorParticipationRound
+		ethByOwner          []*OwnerParticipationRound
+		ethByRecipient      []*RecipientParticipationRound
+		ethTotalByValidator = map[string]*ValidatorParticipation{}
+		ethTotalByOwner     = map[string]*OwnerParticipation{}
+		ethTotalByRecipient = map[string]*RecipientParticipation{}
 	)
 
 	legacyCalculationCutoff := c.plan.LegacyCalculationCutoff
+	hasMigrationSupport := c.plan.StakingUpgrade != nil
 
 	for _, round := range completeRounds {
 		mechanics, err := c.plan.Mechanics.At(round.Period)
@@ -195,8 +204,11 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		var results *roundResults
+		var ethResults *roundResults
 		if round.Period.Before(legacyCalculationCutoff) {
 			results, err = c.processRoundLegacy(ctx, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+		} else if hasMigrationSupport {
+			results, ethResults, err = c.processRoundWithMigration(ctx, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		} else {
 			results, err = c.processRound(ctx, round, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
 		}
@@ -208,67 +220,9 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		ownerParticipations := results.ownerParticipations
 		recipientParticipations := results.recipientParticipations
 
-		// Add validator participations to round and total aggregations
-		for _, participation := range validatorParticipations {
-			byValidator = append(byValidator, &ValidatorParticipationRound{
-				Round:                  round.Period,
-				ValidatorParticipation: participation,
-			})
-			if total, ok := totalByValidator[participation.PublicKey]; ok {
-				total.ActiveDays += participation.ActiveDays
-				total.RegisteredDays += participation.RegisteredDays
-				total.TotalActiveEffectiveBalance += participation.TotalActiveEffectiveBalance
-				total.TotalRegisteredEffectiveBalance += participation.TotalRegisteredEffectiveBalance
-				total.reward = new(big.Int).Add(total.reward, participation.reward)
-				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
-			} else {
-				cpy := *participation
-				totalByValidator[participation.PublicKey] = &cpy
-			}
-		}
-
-		// Add owner participations to round and total aggregations
-		for _, participation := range ownerParticipations {
-			byOwner = append(byOwner, &OwnerParticipationRound{
-				Round:              round.Period,
-				OwnerParticipation: participation,
-			})
-
-			key := participation.OwnerAddress
-			if total, ok := totalByOwner[key]; ok {
-				total.ActiveDays += participation.ActiveDays
-				total.RegisteredDays += participation.RegisteredDays
-				total.Validators += participation.Validators
-				total.TotalActiveEffectiveBalance += participation.TotalActiveEffectiveBalance
-				total.TotalRegisteredEffectiveBalance += participation.TotalRegisteredEffectiveBalance
-				total.reward = new(big.Int).Add(total.reward, participation.reward)
-				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
-			} else {
-				cpy := *participation
-				totalByOwner[key] = &cpy
-			}
-		}
-
-		// Add recipient participations to round and total aggregations
-		for _, participation := range recipientParticipations {
-			byRecipient = append(byRecipient, &RecipientParticipationRound{
-				Round:                  round.Period,
-				RecipientParticipation: participation,
-			})
-
-			if total, ok := totalByRecipient[participation.RecipientAddress]; ok {
-				total.ActiveDays += participation.ActiveDays
-				total.RegisteredDays += participation.RegisteredDays
-				total.Validators += participation.Validators
-				total.TotalActiveEffectiveBalance += participation.TotalActiveEffectiveBalance
-				total.TotalRegisteredEffectiveBalance += participation.TotalRegisteredEffectiveBalance
-				total.reward = new(big.Int).Add(total.reward, participation.reward)
-				total.feeDeduction = new(big.Int).Add(total.feeDeduction, participation.feeDeduction)
-			} else {
-				cpy := *participation
-				totalByRecipient[participation.RecipientAddress] = &cpy
-			}
-		}
+		accumulateValidators(validatorParticipations, round.Period, &byValidator, totalByValidator)
+		accumulateOwners(ownerParticipations, round.Period, &byOwner, totalByOwner)
+		accumulateRecipients(recipientParticipations, round.Period, &byRecipient, totalByRecipient)
 
 		// Normalize all participations
 		for _, p := range validatorParticipations {
@@ -404,6 +358,59 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			return fmt.Errorf("failed to close cumulative.json: %w", err)
 		}
 
+		// ETH tree: accumulate, normalize, and export (no network fee).
+		if ethResults != nil && len(ethResults.validatorParticipations) > 0 {
+			ethVPs := ethResults.validatorParticipations
+			ethOPs := ethResults.ownerParticipations
+			ethRPs := ethResults.recipientParticipations
+
+			accumulateValidators(ethVPs, round.Period, &ethByValidator, ethTotalByValidator)
+			accumulateOwners(ethOPs, round.Period, &ethByOwner, ethTotalByOwner)
+			accumulateRecipients(ethRPs, round.Period, &ethByRecipient, ethTotalByRecipient)
+
+			for _, p := range ethVPs {
+				p.Normalize()
+			}
+			for _, p := range ethOPs {
+				p.Normalize()
+			}
+			for _, p := range ethRPs {
+				p.Normalize()
+			}
+
+			if err := exportCSV(ethVPs, filepath.Join(roundDir, "by-validator-eth.csv")); err != nil {
+				return fmt.Errorf("export ETH validator rewards: %w", err)
+			}
+			if err := exportCSV(ethOPs, filepath.Join(roundDir, "by-owner-eth.csv")); err != nil {
+				return fmt.Errorf("export ETH owner rewards: %w", err)
+			}
+			if err := exportCSV(ethRPs, filepath.Join(roundDir, "by-recipient-eth.csv")); err != nil {
+				return fmt.Errorf("export ETH recipient rewards: %w", err)
+			}
+		}
+
+		// Write cumulative ETH rewards for every round that has accumulated
+		// totals, even when the current round has no new ETH participations.
+		if len(ethTotalByRecipient) > 0 {
+			ethTotalRewards := map[string]string{}
+			for _, p := range ethTotalByRecipient {
+				ethTotalRewards["0x"+p.RecipientAddress] = p.reward.String()
+			}
+			ef, err := os.Create(filepath.Join(roundDir, "cumulative-eth.json"))
+			if err != nil {
+				return fmt.Errorf("create cumulative-eth.json: %w", err)
+			}
+			eEnc := json.NewEncoder(ef)
+			eEnc.SetIndent("", "  ")
+			if err := eEnc.Encode(ethTotalRewards); err != nil {
+				ef.Close()
+				return fmt.Errorf("encode ETH total rewards: %w", err)
+			}
+			if err := ef.Close(); err != nil {
+				return fmt.Errorf("close cumulative-eth.json: %w", err)
+			}
+		}
+
 		var dailyReward, monthlyReward, annualReward *big.Int
 		if round.Period.Before(legacyCalculationCutoff) {
 			dailyReward, monthlyReward, annualReward, err = c.plan.ValidatorRewardsLegacy(round.Period, results.tier)
@@ -425,11 +432,19 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		}
 
 		if round.InflationCap != nil {
+			// For two-tree rounds, compute combined original/final for scaling ratio.
+			combinedOriginal := new(big.Int).Set(results.originalRewards.Wei())
+			combinedFinal := new(big.Int).Set(results.finalRewards.Wei())
+			if ethResults != nil && len(ethResults.validatorParticipations) > 0 {
+				combinedOriginal.Add(combinedOriginal, ethResults.originalRewards.Wei())
+				combinedFinal.Add(combinedFinal, ethResults.finalRewards.Wei())
+			}
+
 			scalingRatio := 1.0
-			if results.originalRewards.Wei().Sign() > 0 {
+			if combinedOriginal.Sign() > 0 {
 				scalingRatioFloat := new(big.Float).Quo(
-					new(big.Float).SetInt(results.finalRewards.Wei()),
-					new(big.Float).SetInt(results.originalRewards.Wei()),
+					new(big.Float).SetInt(combinedFinal),
+					new(big.Float).SetInt(combinedOriginal),
 				)
 				scalingRatio, _ = scalingRatioFloat.Float64()
 			}
@@ -437,8 +452,17 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 			logFields = append(logFields,
 				zap.String("inflation_cap", round.InflationCap.Display()),
 				zap.Float64("scaling_ratio", scalingRatio),
-				zap.String("original_rewards", results.originalRewards.Display()),
-				zap.String("final_rewards", results.finalRewards.Display()),
+				zap.String("original_rewards", precise.NewETH(nil).SetWei(combinedOriginal).Display()),
+				zap.String("final_rewards", precise.NewETH(nil).SetWei(combinedFinal).Display()),
+			)
+		}
+
+		if ethResults != nil && len(ethResults.validatorParticipations) > 0 {
+			logFields = append(logFields,
+				zap.String("ssv_final_rewards", results.finalRewards.Display()),
+				zap.String("eth_final_rewards", ethResults.finalRewards.Display()),
+				zap.Int("ssv_validators", len(results.validatorParticipations)),
+				zap.Int("eth_validators", len(ethResults.validatorParticipations)),
 			)
 		}
 
@@ -475,16 +499,58 @@ func (c *CalcCmd) run(ctx context.Context, logger *zap.Logger, dir string) error
 		return fmt.Errorf("failed to export total recipient rewards: %w", err)
 	}
 
+	// Export ETH tree cross-round totals (only when entries exist).
+	if len(ethTotalByRecipient) > 0 {
+		for _, v := range ethTotalByValidator {
+			v.Normalize()
+		}
+		for _, o := range ethTotalByOwner {
+			o.Normalize()
+		}
+		for _, r := range ethTotalByRecipient {
+			r.Normalize()
+		}
+
+		if err := exportCSV(ethByValidator, filepath.Join(dir, "by-validator-eth.csv")); err != nil {
+			return fmt.Errorf("export ETH total validator rewards: %w", err)
+		}
+		if err := exportCSV(ethByOwner, filepath.Join(dir, "by-owner-eth.csv")); err != nil {
+			return fmt.Errorf("export ETH total owner rewards: %w", err)
+		}
+		if err := exportCSV(ethByRecipient, filepath.Join(dir, "by-recipient-eth.csv")); err != nil {
+			return fmt.Errorf("export ETH total recipient rewards: %w", err)
+		}
+		if err := exportCSV(maps.Values(ethTotalByValidator), filepath.Join(dir, "total-by-validator-eth.csv")); err != nil {
+			return fmt.Errorf("export ETH total validator rewards: %w", err)
+		}
+		if err := exportCSV(maps.Values(ethTotalByOwner), filepath.Join(dir, "total-by-owner-eth.csv")); err != nil {
+			return fmt.Errorf("export ETH total owner rewards: %w", err)
+		}
+		if err := exportCSV(maps.Values(ethTotalByRecipient), filepath.Join(dir, "total-by-recipient-eth.csv")); err != nil {
+			return fmt.Errorf("export ETH total recipient rewards: %w", err)
+		}
+	}
+
 	// Export exclusions.
-	exclusions, err := c.exclusions(
-		ctx,
-		completeRounds,
-	)
+	exclusions, err := c.exclusions(ctx, completeRounds, "ssv")
 	if err != nil {
 		return fmt.Errorf("failed to get exclusions: %w", err)
 	}
 	if err := exportCSV(exclusions, filepath.Join(dir, "exclusions.csv")); err != nil {
 		return fmt.Errorf("failed to export exclusions: %w", err)
+	}
+
+	// Export ETH tree exclusions (only when migration support is configured).
+	if c.plan.StakingUpgrade != nil {
+		ethExclusions, err := c.exclusions(ctx, completeRounds, "eth")
+		if err != nil {
+			return fmt.Errorf("failed to get ETH exclusions: %w", err)
+		}
+		if len(ethExclusions) > 0 {
+			if err := exportCSV(ethExclusions, filepath.Join(dir, "exclusions-eth.csv")); err != nil {
+				return fmt.Errorf("failed to export ETH exclusions: %w", err)
+			}
+		}
 	}
 
 	return nil
@@ -498,17 +564,17 @@ func (c *CalcCmd) processRoundLegacy(
 	mechanics *rewards.Mechanics,
 	ownerRedirectsSupport, validatorRedirectsSupport bool,
 ) (*roundResults, error) {
-	validatorParticipations, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+	validatorParticipations, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport, "ssv")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get validator participations: %w", err)
 	}
 
-	ownerParticipations, err := c.ownerParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+	ownerParticipations, err := c.ownerParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport, "ssv")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get owner participations: %w", err)
 	}
 
-	recipientParticipations, err := c.recipientParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+	recipientParticipations, err := c.recipientParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport, "ssv")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get recipient participations: %w", err)
 	}
@@ -601,7 +667,7 @@ func (c *CalcCmd) processRound(
 	mechanics *rewards.Mechanics,
 	ownerRedirectsSupport, validatorRedirectsSupport bool,
 ) (*roundResults, error) {
-	validatorParticipations, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport)
+	validatorParticipations, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport, "ssv")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get validator participations: %w", err)
 	}
@@ -688,6 +754,210 @@ func (c *CalcCmd) processRound(
 		finalRewards:            finalRewards,
 		originalRewards:         originalRewards,
 	}, nil
+}
+
+// processRoundWithMigration handles reward calculation for rounds with ETH migration support.
+// It queries both SSV and ETH validator participations, computes a combined effective balance
+// for tier selection, and applies a single shared inflation cap across both trees.
+func (c *CalcCmd) processRoundWithMigration(
+	ctx context.Context,
+	round rewards.Round,
+	mechanics *rewards.Mechanics,
+	ownerRedirectsSupport, validatorRedirectsSupport bool,
+) (ssvResults *roundResults, ethResults *roundResults, err error) {
+	ssvVPs, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport, "ssv")
+	if err != nil {
+		return nil, nil, fmt.Errorf("get SSV validator participations: %w", err)
+	}
+	ethVPs, err := c.validatorParticipations(ctx, round.Period, mechanics, ownerRedirectsSupport, validatorRedirectsSupport, "eth")
+	if err != nil {
+		return nil, nil, fmt.Errorf("get ETH validator participations: %w", err)
+	}
+
+	// Combined effective balance for tier selection.
+	allVPs := make([]*ValidatorParticipation, 0, len(ssvVPs)+len(ethVPs))
+	allVPs = append(allVPs, ssvVPs...)
+	allVPs = append(allVPs, ethVPs...)
+
+	var totalEffectiveBalance *precise.ETH
+	if round.Period.Before(tierCalculationCutoff) {
+		totalEffectiveBalance = c.calculateTotalEffectiveBalanceLegacy(allVPs)
+	} else {
+		totalEffectiveBalance = c.calculateTotalEffectiveBalance(allVPs, round.Period.Days())
+	}
+	tier, err := c.plan.Tier(round.Period, totalEffectiveBalance)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get tier: %w", err)
+	}
+
+	dailyReward, _, _, err := c.plan.ValidatorRewards(round.Period, tier)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get rewards: %w", err)
+	}
+
+	roundDays := round.Period.Days()
+	ssvNetworkFee := round.NetworkFee.Wei()
+	ethNetworkFee := big.NewInt(0)
+
+	// First pass: compute combined base reward for inflation cap.
+	totalBaseReward := big.NewInt(0)
+	ssvOriginalWei := big.NewInt(0)
+	ethOriginalWei := big.NewInt(0)
+
+	for _, v := range ssvVPs {
+		reward, fee, err := c.calculateReward(
+			v.TotalActiveEffectiveBalance, v.TotalRegisteredEffectiveBalance,
+			v.RegisteredDays, roundDays, dailyReward, ssvNetworkFee,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("calculate SSV base reward: %w", err)
+		}
+		ssvOriginalWei.Add(ssvOriginalWei, reward)
+		totalBaseReward.Add(totalBaseReward, new(big.Int).Add(reward, fee))
+	}
+	for _, v := range ethVPs {
+		reward, fee, err := c.calculateReward(
+			v.TotalActiveEffectiveBalance, v.TotalRegisteredEffectiveBalance,
+			v.RegisteredDays, roundDays, dailyReward, ethNetworkFee,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("calculate ETH base reward: %w", err)
+		}
+		ethOriginalWei.Add(ethOriginalWei, reward)
+		totalBaseReward.Add(totalBaseReward, new(big.Int).Add(reward, fee))
+	}
+
+	// Scale daily reward if inflation cap exceeded.
+	scaledDailyReward := new(big.Int).Set(dailyReward)
+	if round.InflationCap != nil &&
+		totalBaseReward.Sign() > 0 && totalBaseReward.Cmp(round.InflationCap.Wei()) > 0 {
+		scaledDailyReward.Mul(scaledDailyReward, round.InflationCap.Wei())
+		scaledDailyReward.Div(scaledDailyReward, totalBaseReward)
+	}
+
+	// Second pass: compute final rewards with (potentially) scaled daily reward.
+	ssvFinalWei := big.NewInt(0)
+	for _, v := range ssvVPs {
+		v.reward, v.feeDeduction, err = c.calculateReward(
+			v.TotalActiveEffectiveBalance, v.TotalRegisteredEffectiveBalance,
+			v.RegisteredDays, roundDays, scaledDailyReward, ssvNetworkFee,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("calculate SSV final reward: %w", err)
+		}
+		ssvFinalWei.Add(ssvFinalWei, v.reward)
+	}
+
+	ethFinalWei := big.NewInt(0)
+	for _, v := range ethVPs {
+		v.reward, v.feeDeduction, err = c.calculateReward(
+			v.TotalActiveEffectiveBalance, v.TotalRegisteredEffectiveBalance,
+			v.RegisteredDays, roundDays, scaledDailyReward, ethNetworkFee,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("calculate ETH final reward: %w", err)
+		}
+		ethFinalWei.Add(ethFinalWei, v.reward)
+	}
+
+	ssvResults = &roundResults{
+		validatorParticipations: ssvVPs,
+		ownerParticipations:     c.aggregateByOwner(ssvVPs),
+		recipientParticipations: c.aggregateByRecipient(ssvVPs),
+		totalEffectiveBalance:   totalEffectiveBalance,
+		tier:                    tier,
+		originalRewards:         precise.NewETH(nil).SetWei(ssvOriginalWei),
+		finalRewards:            precise.NewETH(nil).SetWei(ssvFinalWei),
+	}
+	ethResults = &roundResults{
+		validatorParticipations: ethVPs,
+		ownerParticipations:     c.aggregateByOwner(ethVPs),
+		recipientParticipations: c.aggregateByRecipient(ethVPs),
+		totalEffectiveBalance:   totalEffectiveBalance,
+		tier:                    tier,
+		originalRewards:         precise.NewETH(nil).SetWei(ethOriginalWei),
+		finalRewards:            precise.NewETH(nil).SetWei(ethFinalWei),
+	}
+
+	return ssvResults, ethResults, nil
+}
+
+func accumulateValidators(
+	participations []*ValidatorParticipation,
+	period rewards.Period,
+	byRound *[]*ValidatorParticipationRound,
+	totals map[string]*ValidatorParticipation,
+) {
+	for _, p := range participations {
+		*byRound = append(*byRound, &ValidatorParticipationRound{
+			Round:                  period,
+			ValidatorParticipation: p,
+		})
+		if total, ok := totals[p.PublicKey]; ok {
+			total.ActiveDays += p.ActiveDays
+			total.RegisteredDays += p.RegisteredDays
+			total.TotalActiveEffectiveBalance += p.TotalActiveEffectiveBalance
+			total.TotalRegisteredEffectiveBalance += p.TotalRegisteredEffectiveBalance
+			total.reward = new(big.Int).Add(total.reward, p.reward)
+			total.feeDeduction = new(big.Int).Add(total.feeDeduction, p.feeDeduction)
+		} else {
+			cpy := *p
+			totals[p.PublicKey] = &cpy
+		}
+	}
+}
+
+func accumulateOwners(
+	participations []*OwnerParticipation,
+	period rewards.Period,
+	byRound *[]*OwnerParticipationRound,
+	totals map[string]*OwnerParticipation,
+) {
+	for _, p := range participations {
+		*byRound = append(*byRound, &OwnerParticipationRound{
+			Round:              period,
+			OwnerParticipation: p,
+		})
+		key := p.OwnerAddress
+		if total, ok := totals[key]; ok {
+			total.ActiveDays += p.ActiveDays
+			total.RegisteredDays += p.RegisteredDays
+			total.Validators += p.Validators
+			total.TotalActiveEffectiveBalance += p.TotalActiveEffectiveBalance
+			total.TotalRegisteredEffectiveBalance += p.TotalRegisteredEffectiveBalance
+			total.reward = new(big.Int).Add(total.reward, p.reward)
+			total.feeDeduction = new(big.Int).Add(total.feeDeduction, p.feeDeduction)
+		} else {
+			cpy := *p
+			totals[key] = &cpy
+		}
+	}
+}
+
+func accumulateRecipients(
+	participations []*RecipientParticipation,
+	period rewards.Period,
+	byRound *[]*RecipientParticipationRound,
+	totals map[string]*RecipientParticipation,
+) {
+	for _, p := range participations {
+		*byRound = append(*byRound, &RecipientParticipationRound{
+			Round:                  period,
+			RecipientParticipation: p,
+		})
+		if total, ok := totals[p.RecipientAddress]; ok {
+			total.ActiveDays += p.ActiveDays
+			total.RegisteredDays += p.RegisteredDays
+			total.Validators += p.Validators
+			total.TotalActiveEffectiveBalance += p.TotalActiveEffectiveBalance
+			total.TotalRegisteredEffectiveBalance += p.TotalRegisteredEffectiveBalance
+			total.reward = new(big.Int).Add(total.reward, p.reward)
+			total.feeDeduction = new(big.Int).Add(total.feeDeduction, p.feeDeduction)
+		} else {
+			cpy := *p
+			totals[p.RecipientAddress] = &cpy
+		}
+	}
 }
 
 // calculateTotalEffectiveBalanceLegacy calculates total EB as sum of average EB per validator.
@@ -914,10 +1184,11 @@ func (c *CalcCmd) validatorParticipations(
 	period rewards.Period,
 	mechanics *rewards.Mechanics,
 	ownerRedirectsSupport, validatorRedirectsSupport bool,
+	migrationFilter string,
 ) ([]*ValidatorParticipation, error) {
 	var participations []*ValidatorParticipation
 	return participations, queries.Raw(
-		"SELECT * FROM participations_by_validator($1, $2, $3, $4, $5, $6, $7, $8)",
+		"SELECT * FROM participations_by_validator($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -926,6 +1197,7 @@ func (c *CalcCmd) validatorParticipations(
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
 		mechanics.PectraSupport,
+		migrationFilter,
 	).Bind(ctx, c.db, &participations)
 }
 
@@ -966,10 +1238,11 @@ func (c *CalcCmd) ownerParticipations(
 	period rewards.Period,
 	mechanics *rewards.Mechanics,
 	ownerRedirectsSupport, validatorRedirectsSupport bool,
+	migrationFilter string,
 ) ([]*OwnerParticipation, error) {
 	var participations []*OwnerParticipation
 	return participations, queries.Raw(
-		"SELECT * FROM participations_by_owner($1, $2, $3, $4, $5, $6, $7, $8)",
+		"SELECT * FROM participations_by_owner($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -978,6 +1251,7 @@ func (c *CalcCmd) ownerParticipations(
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
 		mechanics.PectraSupport,
+		migrationFilter,
 	).Bind(ctx, c.db, &participations)
 }
 
@@ -1017,10 +1291,11 @@ func (c *CalcCmd) recipientParticipations(
 	period rewards.Period,
 	mechanics *rewards.Mechanics,
 	ownerRedirectsSupport, validatorRedirectsSupport bool,
+	migrationFilter string,
 ) ([]*RecipientParticipation, error) {
 	var participations []*RecipientParticipation
 	return participations, queries.Raw(
-		"SELECT * FROM participations_by_recipient($1, $2, $3, $4, $5, $6, $7, $8)",
+		"SELECT * FROM participations_by_recipient($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
@@ -1029,6 +1304,7 @@ func (c *CalcCmd) recipientParticipations(
 		ownerRedirectsSupport,
 		validatorRedirectsSupport,
 		mechanics.PectraSupport,
+		migrationFilter,
 	).Bind(ctx, c.db, &participations)
 }
 
@@ -1174,6 +1450,7 @@ type Exclusion struct {
 func (c *CalcCmd) exclusionsForRound(
 	ctx context.Context,
 	period rewards.Period,
+	migrationFilter string,
 ) ([]*Exclusion, error) {
 	mechanics, err := c.plan.Mechanics.At(period)
 	if err != nil {
@@ -1192,12 +1469,13 @@ func (c *CalcCmd) exclusionsForRound(
 	}
 
 	err = queries.Raw(
-		"SELECT * FROM exclusions_by_validator($1, $2, $3, $4, $5)",
+		"SELECT * FROM exclusions_by_validator($1, $2, $3, $4, $5, $6)",
 		c.PerformanceProvider,
 		mechanics.Criteria.MinAttestationsPerDay,
 		mechanics.Criteria.MinDecidedsPerDay,
 		time.Time(period),
 		time.Time(period),
+		migrationFilter,
 	).Bind(ctx, c.db, &rows)
 	if err != nil {
 		return nil, err
@@ -1222,10 +1500,11 @@ func (c *CalcCmd) exclusionsForRound(
 func (c *CalcCmd) exclusions(
 	ctx context.Context,
 	rounds []rewards.Round,
+	migrationFilter string,
 ) ([]*Exclusion, error) {
 	var exclusions []*Exclusion
 	for _, round := range rounds {
-		e, err := c.exclusionsForRound(ctx, round.Period)
+		e, err := c.exclusionsForRound(ctx, round.Period, migrationFilter)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get exclusions for round %s: %w", round.Period, err)
 		}

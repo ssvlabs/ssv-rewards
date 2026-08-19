@@ -1,5 +1,12 @@
 version: 2
 
+# Optional: Upgrade boundary for ETH-fee cluster migration.
+# Set to the (block, log_index) of the staking module upgrade event.
+# ValidatorAdded events at or after this position belong to the ETH reward tree.
+# staking_upgrade:
+#   block: 22345678
+#   log_index: 42
+
 mechanics:
   - since: 2023-07
     criteria:

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	"github.com/attestantio/go-eth2-client/api"
@@ -32,6 +33,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/bloxapp/ssv-rewards/pkg/models"
+	"github.com/bloxapp/ssv-rewards/pkg/rewards"
 )
 
 func SyncValidatorEvents(
@@ -42,6 +44,7 @@ func SyncValidatorEvents(
 	nodeStorage operatorstorage.Storage,
 	db *sql.DB,
 	cl eth2client.Service,
+	stakingUpgrade *rewards.StakingUpgrade,
 ) error {
 	// Fetch events from the database, organize into a channel of BlockLogs
 	// and process them using SSV's EventHandler.
@@ -102,7 +105,7 @@ func SyncValidatorEvents(
 	// Spawn handled event recorder.
 	eventTraces := make(chan eventhandler.EventTrace, 1024)
 	backgroundTasks.Go(func(ctx context.Context) (err error) {
-		if err := recordHandledEvents(ctx, logger, db, nodeStorage, eventTraces); err != nil {
+		if err := recordHandledEvents(ctx, logger, db, nodeStorage, eventTraces, stakingUpgrade); err != nil {
 			return fmt.Errorf("failed to record handled event: %w", err)
 		}
 		return nil
@@ -262,7 +265,8 @@ func SyncValidatorEvents(
 				int(beaconValidator.Validator.WithdrawableEpoch),
 			)
 		}
-		if err := validator.Upsert(ctx, db, true, []string{"public_key"}, boil.Infer(), boil.Infer()); err != nil {
+		// Blacklist migration_day on update to preserve values set by cluster migration or post-upgrade add.
+		if err := validator.Upsert(ctx, db, true, []string{"public_key"}, boil.Blacklist("migration_day"), boil.Infer()); err != nil {
 			return fmt.Errorf("failed to upsert validator: %w", err)
 		}
 	}
@@ -275,8 +279,10 @@ func recordHandledEvents(
 	db *sql.DB,
 	nodeStorage operatorstorage.Storage,
 	eventTraces <-chan eventhandler.EventTrace,
+	stakingUpgrade *rewards.StakingUpgrade,
 ) error {
 	recordedEvents := 0
+	migratedClusters := make(map[string]struct{})
 	defer func() {
 		// Read from eventTraces until it's closed to avoid clogging EventHandler.
 		go func() {
@@ -313,11 +319,8 @@ func recordHandledEvents(
 				return fmt.Errorf("failed to update event: %w", sql.ErrNoRows)
 			}
 
-			// Insert ValidatorEvent(s).
-			if eventTrace.Error != nil {
-				continue
-			}
-			recordedEvents++
+			// Fetch databaseEvent before error check — needed for both migration
+			// handling and regular event processing.
 			databaseEvent, err := models.ContractEvents(
 				models.ContractEventWhere.BlockNumber.EQ(int(eventTrace.Log.BlockNumber)),
 				models.ContractEventWhere.LogIndex.EQ(int(eventTrace.Log.Index)),
@@ -325,11 +328,38 @@ func recordHandledEvents(
 			if err != nil {
 				return fmt.Errorf("failed to match ContractEvent: %w", err)
 			}
+
+			if eventTrace.Error != nil {
+				// Check if this is a ClusterMigratedToETH event we can handle ourselves.
+				if len(eventTrace.Log.Topics) > 0 && eventTrace.Log.Topics[0] == rewards.ClusterMigratedToETHTopic {
+					if err := handleClusterMigration(ctx, logger, db, eventTrace.Log, databaseEvent, migratedClusters); err != nil {
+						return fmt.Errorf("handle cluster migration: %w", err)
+					}
+					// Clear the error and set event_name since we handled it.
+					n, err := models.ContractEvents(
+						models.ContractEventWhere.ID.EQ(databaseEvent.ID),
+					).UpdateAll(ctx, db, models.M{
+						models.ContractEventColumns.Error:     sql.NullString{},
+						models.ContractEventColumns.EventName: rewards.ClusterMigratedToETHEvent,
+					})
+					if err != nil {
+						return fmt.Errorf("clear contract event error: %w", err)
+					}
+					if n != 1 {
+						return fmt.Errorf("clear contract event error: expected 1 row, got %d", n)
+					}
+					recordedEvents++
+				}
+				continue
+			}
+
+			recordedEvents++
 			var (
-				eventName    string
-				pubKeys      []string
-				ownerAddress common.Address
-				activated    bool
+				eventName              string
+				pubKeys                []string
+				ownerAddress           common.Address
+				activated              bool
+				addedPostStakingUpgrade *time.Time
 			)
 			switch v := eventTrace.Event.(type) {
 			case *contract.ContractValidatorAdded:
@@ -337,6 +367,10 @@ func recordHandledEvents(
 				activated = true
 				ownerAddress = v.Owner
 				pubKeys = []string{hex.EncodeToString(v.PublicKey)}
+				if isPostStakingUpgrade(eventTrace.Log, stakingUpgrade) {
+					addDay := databaseEvent.BlockTime.UTC().Truncate(24 * time.Hour)
+					addedPostStakingUpgrade = &addDay
+				}
 			case *contract.ContractValidatorRemoved:
 				eventName = eventparser.ValidatorRemoved
 				activated = false
@@ -376,6 +410,20 @@ func recordHandledEvents(
 				}
 				if err := validator.Upsert(ctx, db, false, []string{"public_key"}, boil.None(), boil.Whitelist("public_key", "active")); err != nil {
 					return fmt.Errorf("failed to upsert validator: %w", err)
+				}
+
+				// Post-upgrade ValidatorAdded: set migration_day to the add day.
+				// IS NULL guard prevents overwriting if already set (e.g., from ClusterMigratedToETH).
+				if addedPostStakingUpgrade != nil {
+					_, err := models.Validators(
+						models.ValidatorWhere.PublicKey.EQ(pubKey),
+						models.ValidatorWhere.MigrationDay.IsNull(),
+					).UpdateAll(ctx, db, models.M{
+						models.ValidatorColumns.MigrationDay: *addedPostStakingUpgrade,
+					})
+					if err != nil {
+						return fmt.Errorf("set migration_day for post-upgrade add: %w", err)
+					}
 				}
 
 				validatorEvent := models.ValidatorEvent{

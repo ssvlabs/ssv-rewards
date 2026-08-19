@@ -37,6 +37,11 @@ Edit `rewards.yaml` to match [the specifications](https://docs.google.com/docume
 ```yaml
 version: 2
 
+# ETH-fee cluster migration support (optional).
+# staking_upgrade:
+#   block: 22345678
+#   log_index: 42
+
 mechanics:
   - since: 2023-07
     criteria:
@@ -164,12 +169,18 @@ This produces the following documents under the `./rewards` directory:
 ├── 📄 by-recipient.csv        # Reward for each recipient for each round
 ├── 📄 total-by-owner.csv      # Total reward for each owner
 ├── 📄 total-by-validator.csv  # Total reward for each validator
+├── 📄 exclusions.csv          # Excluded validator-days with reasons
+├── 📄 *-eth.csv               # ETH tree variants (only when migrations exist)
 └── 📂 <year>-<month>
     ├── 📄 by-owner.csv        # Total reward for each owner for that round
     ├── 📄 by-validator.csv    # Total reward for each validator for that round
     ├── 📄 by-recipient.csv    # Total reward for each recipient for that round
-    └── 📄 cumulative.json     # Cumulative reward for each owner until and including that round
+    ├── 📄 cumulative.json     # Cumulative SSV-tree reward for each recipient
+    ├── 📄 *-eth.csv           # ETH tree CSVs (only when migrations exist)
+    └── 📄 cumulative-eth.json # Cumulative ETH-tree reward (only when migrations exist)
 ```
+
+When `staking_upgrade` is configured and validators have migrated to ETH-fee clusters, the calc step produces two sets of outputs: SSV tree files (existing filenames, with fee deduction) and ETH tree files (`-eth` suffix, no fee deduction). Each tree has its own cumulative JSON for merkleization.
 
 - `recipient` is the address that eventually receives the reward, which is either the owner address, or if the owner is redirecting the reward, the address specified in `owner_redirects` or `owner_redirects_file`.
 

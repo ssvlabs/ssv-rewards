@@ -309,6 +309,79 @@ func TestPlan_Validate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "staking_upgrade block must be positive",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since:    NewPeriod(2020, 1),
+						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
+						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}},
+					},
+				},
+				Rounds:         Rounds{{Period: NewPeriod(2020, 1)}},
+				StakingUpgrade: &StakingUpgrade{Block: 0, LogIndex: 5},
+			},
+			expectedErr: "staking_upgrade.block must be positive",
+		},
+		{
+			name: "staking_upgrade negative block",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since:    NewPeriod(2020, 1),
+						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
+						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}},
+					},
+				},
+				Rounds:         Rounds{{Period: NewPeriod(2020, 1)}},
+				StakingUpgrade: &StakingUpgrade{Block: -1, LogIndex: 0},
+			},
+			expectedErr: "staking_upgrade.block must be positive",
+		},
+		{
+			name: "staking_upgrade log_index must be non-negative",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since:    NewPeriod(2020, 1),
+						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
+						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}},
+					},
+				},
+				Rounds:         Rounds{{Period: NewPeriod(2020, 1)}},
+				StakingUpgrade: &StakingUpgrade{Block: 100, LogIndex: -1},
+			},
+			expectedErr: "staking_upgrade.log_index must be non-negative",
+		},
+		{
+			name: "valid plan with staking_upgrade",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since:    NewPeriod(2020, 1),
+						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
+						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}},
+					},
+				},
+				Rounds:         Rounds{{Period: NewPeriod(2020, 1)}},
+				StakingUpgrade: &StakingUpgrade{Block: 100, LogIndex: 0},
+			},
+		},
+		{
+			name: "valid plan with staking_upgrade non-zero log_index",
+			plan: &Plan{
+				Mechanics: MechanicsList{
+					{
+						Since:    NewPeriod(2020, 1),
+						Criteria: Criteria{MinAttestationsPerDay: 1, MinDecidedsPerDay: 1},
+						Tiers:    Tiers{{MaxEffectiveBalance: precise.NewETH64(32), APRBoost: mustParseETH("0.1")}},
+					},
+				},
+				Rounds:         Rounds{{Period: NewPeriod(2020, 1)}},
+				StakingUpgrade: &StakingUpgrade{Block: 12345678, LogIndex: 42},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

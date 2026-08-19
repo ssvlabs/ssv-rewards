@@ -34,6 +34,7 @@ type Validator struct {
 	BeaconExitEpoch                  null.Int    `boil:"beacon_exit_epoch" json:"beacon_exit_epoch,omitempty" toml:"beacon_exit_epoch" yaml:"beacon_exit_epoch,omitempty"`
 	BeaconSlashed                    null.Bool   `boil:"beacon_slashed" json:"beacon_slashed,omitempty" toml:"beacon_slashed" yaml:"beacon_slashed,omitempty"`
 	BeaconWithdrawableEpoch          null.Int    `boil:"beacon_withdrawable_epoch" json:"beacon_withdrawable_epoch,omitempty" toml:"beacon_withdrawable_epoch" yaml:"beacon_withdrawable_epoch,omitempty"`
+	MigrationDay                     null.Time   `boil:"migration_day" json:"migration_day,omitempty" toml:"migration_day" yaml:"migration_day,omitempty"`
 
 	R *validatorR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L validatorL  `boil:"-" json:"-" toml:"-" yaml:"-"`
@@ -50,6 +51,7 @@ var ValidatorColumns = struct {
 	BeaconExitEpoch                  string
 	BeaconSlashed                    string
 	BeaconWithdrawableEpoch          string
+	MigrationDay                     string
 }{
 	PublicKey:                        "public_key",
 	Index:                            "index",
@@ -61,6 +63,7 @@ var ValidatorColumns = struct {
 	BeaconExitEpoch:                  "beacon_exit_epoch",
 	BeaconSlashed:                    "beacon_slashed",
 	BeaconWithdrawableEpoch:          "beacon_withdrawable_epoch",
+	MigrationDay:                     "migration_day",
 }
 
 var ValidatorTableColumns = struct {
@@ -74,6 +77,7 @@ var ValidatorTableColumns = struct {
 	BeaconExitEpoch                  string
 	BeaconSlashed                    string
 	BeaconWithdrawableEpoch          string
+	MigrationDay                     string
 }{
 	PublicKey:                        "validators.public_key",
 	Index:                            "validators.index",
@@ -85,6 +89,7 @@ var ValidatorTableColumns = struct {
 	BeaconExitEpoch:                  "validators.beacon_exit_epoch",
 	BeaconSlashed:                    "validators.beacon_slashed",
 	BeaconWithdrawableEpoch:          "validators.beacon_withdrawable_epoch",
+	MigrationDay:                     "validators.migration_day",
 }
 
 // Generated where
@@ -124,6 +129,7 @@ var ValidatorWhere = struct {
 	BeaconExitEpoch                  whereHelpernull_Int
 	BeaconSlashed                    whereHelpernull_Bool
 	BeaconWithdrawableEpoch          whereHelpernull_Int
+	MigrationDay                     whereHelpernull_Time
 }{
 	PublicKey:                        whereHelperstring{field: "\"validators\".\"public_key\""},
 	Index:                            whereHelpernull_Int{field: "\"validators\".\"index\""},
@@ -135,6 +141,7 @@ var ValidatorWhere = struct {
 	BeaconExitEpoch:                  whereHelpernull_Int{field: "\"validators\".\"beacon_exit_epoch\""},
 	BeaconSlashed:                    whereHelpernull_Bool{field: "\"validators\".\"beacon_slashed\""},
 	BeaconWithdrawableEpoch:          whereHelpernull_Int{field: "\"validators\".\"beacon_withdrawable_epoch\""},
+	MigrationDay:                     whereHelpernull_Time{field: "\"validators\".\"migration_day\""},
 }
 
 // ValidatorRels is where relationship names are stored.
@@ -185,9 +192,9 @@ func (r *validatorR) GetPublicKeyValidatorPerformances() ValidatorPerformanceSli
 type validatorL struct{}
 
 var (
-	validatorAllColumns            = []string{"public_key", "index", "active", "beacon_status", "beacon_effective_balance", "beacon_activation_eligibility_epoch", "beacon_activation_epoch", "beacon_exit_epoch", "beacon_slashed", "beacon_withdrawable_epoch"}
+	validatorAllColumns            = []string{"public_key", "index", "active", "beacon_status", "beacon_effective_balance", "beacon_activation_eligibility_epoch", "beacon_activation_epoch", "beacon_exit_epoch", "beacon_slashed", "beacon_withdrawable_epoch", "migration_day"}
 	validatorColumnsWithoutDefault = []string{"public_key", "active"}
-	validatorColumnsWithDefault    = []string{"index", "beacon_status", "beacon_effective_balance", "beacon_activation_eligibility_epoch", "beacon_activation_epoch", "beacon_exit_epoch", "beacon_slashed", "beacon_withdrawable_epoch"}
+	validatorColumnsWithDefault    = []string{"index", "beacon_status", "beacon_effective_balance", "beacon_activation_eligibility_epoch", "beacon_activation_epoch", "beacon_exit_epoch", "beacon_slashed", "beacon_withdrawable_epoch", "migration_day"}
 	validatorPrimaryKeyColumns     = []string{"public_key"}
 	validatorGeneratedColumns      = []string{}
 )

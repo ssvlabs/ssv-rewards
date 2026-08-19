@@ -38,6 +38,15 @@ type Plan struct {
 	//   - Constant daily rewards (daily = annual/365, then monthly = daily * days_in_month)
 	// Default: defaultLegacyCalculationCutoff (2025-08)
 	LegacyCalculationCutoff Period `yaml:"legacy_calculation_cutoff,omitempty"`
+
+	StakingUpgrade *StakingUpgrade `yaml:"staking_upgrade,omitempty"`
+}
+
+// StakingUpgrade is the on-chain event position that separates pre-upgrade
+// validators (SSV reward tree) from post-upgrade validators (ETH reward tree).
+type StakingUpgrade struct {
+	Block    int `yaml:"block"`
+	LogIndex int `yaml:"log_index"`
 }
 
 // ParsePlan parses the given YAML document into a Plan.
@@ -122,6 +131,16 @@ func (p *Plan) validate() error {
 				return fmt.Errorf("failed to load validator redirects from file %q: %w", mechanics.ValidatorRedirectsFile, err)
 			}
 			mechanics.ValidatorRedirects = loadedRedirects
+		}
+	}
+
+	// Validate upgrade boundary.
+	if p.StakingUpgrade != nil {
+		if p.StakingUpgrade.Block <= 0 {
+			return errors.New("staking_upgrade.block must be positive")
+		}
+		if p.StakingUpgrade.LogIndex < 0 {
+			return errors.New("staking_upgrade.log_index must be non-negative")
 		}
 	}
 

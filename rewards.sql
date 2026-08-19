@@ -1,3 +1,10 @@
+-- Drop old function signatures to prevent overloaded ambiguity.
+-- Required because CREATE OR REPLACE with a new parameter count creates a new overload.
+DROP FUNCTION IF EXISTS participations_by_validator(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN, BOOLEAN, BOOLEAN);
+DROP FUNCTION IF EXISTS participations_by_recipient(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN, BOOLEAN, BOOLEAN);
+DROP FUNCTION IF EXISTS participations_by_owner(provider_type, INTEGER, INTEGER, DATE, DATE, BOOLEAN, BOOLEAN, BOOLEAN);
+DROP FUNCTION IF EXISTS exclusions_by_validator(provider_type, INTEGER, INTEGER, DATE, DATE);
+
 CREATE OR REPLACE FUNCTION participations_by_validator(
     _provider provider_type,
     min_attestations INTEGER,
@@ -6,7 +13,8 @@ CREATE OR REPLACE FUNCTION participations_by_validator(
     to_period DATE DEFAULT NULL,
     owner_redirects_support BOOLEAN DEFAULT FALSE,
     validator_redirects_support BOOLEAN DEFAULT FALSE,
-    pectra_support BOOLEAN DEFAULT FALSE
+    pectra_support BOOLEAN DEFAULT FALSE,
+    migration_filter TEXT DEFAULT 'ssv'
 )
 RETURNS TABLE (
     recipient_address TEXT,
@@ -39,9 +47,17 @@ BEGIN
         FROM validator_performances vp
         LEFT JOIN validator_redirects vr ON validator_redirects_support AND vp.public_key = vr.public_key
         LEFT JOIN owner_redirects owr ON owner_redirects_support AND vp.owner_address = owr.from_address
+        LEFT JOIN validators v ON vp.public_key = v.public_key
         WHERE vp.provider = _provider
           AND vp.day >= _from_month AND vp.day < (_to_month + INTERVAL '1 month')
           AND vp.solvent_whole_day
+          AND (
+              CASE migration_filter
+                  WHEN 'ssv' THEN (v.migration_day IS NULL OR vp.day < v.migration_day)
+                  WHEN 'eth' THEN (v.migration_day IS NOT NULL AND vp.day >= v.migration_day)
+                  ELSE FALSE
+              END
+          )
     )
     SELECT
         vpr.recipient_address,
@@ -65,7 +81,8 @@ CREATE OR REPLACE FUNCTION participations_by_recipient(
     to_period DATE DEFAULT NULL,
     owner_redirects_support BOOLEAN DEFAULT FALSE,
     validator_redirects_support BOOLEAN DEFAULT FALSE,
-    pectra_support BOOLEAN DEFAULT FALSE
+    pectra_support BOOLEAN DEFAULT FALSE,
+    migration_filter TEXT DEFAULT 'ssv'
 )
 RETURNS TABLE (
     recipient_address TEXT,
@@ -92,7 +109,8 @@ BEGIN
         to_period,
         owner_redirects_support,
         validator_redirects_support,
-        pectra_support
+        pectra_support,
+        migration_filter
     ) adv
     GROUP BY adv.recipient_address;
 END;
@@ -106,7 +124,8 @@ CREATE OR REPLACE FUNCTION participations_by_owner(
     to_period DATE DEFAULT NULL,
     owner_redirects_support BOOLEAN DEFAULT FALSE,
     validator_redirects_support BOOLEAN DEFAULT FALSE,
-    pectra_support BOOLEAN DEFAULT FALSE
+    pectra_support BOOLEAN DEFAULT FALSE,
+    migration_filter TEXT DEFAULT 'ssv'
 )
 RETURNS TABLE (
     recipient_address TEXT,
@@ -135,7 +154,8 @@ BEGIN
         to_period,
         owner_redirects_support,
         validator_redirects_support,
-        pectra_support
+        pectra_support,
+        migration_filter
     ) adv
     GROUP BY adv.owner_address, adv.recipient_address;
 END;
@@ -146,7 +166,8 @@ CREATE OR REPLACE FUNCTION exclusions_by_validator(
     min_attestations INTEGER,
     min_decideds INTEGER,
     from_period DATE,
-    to_period DATE default NULL
+    to_period DATE default NULL,
+    migration_filter TEXT DEFAULT 'ssv'
 )
 RETURNS TABLE (
 	day DATE,
@@ -180,9 +201,17 @@ BEGIN
                 ELSE 'unknown'
             END AS exclusion_reason
         FROM validator_performances AS vp
+        LEFT JOIN validators val ON vp.public_key = val.public_key
         WHERE provider = _provider
           AND vp.day >= _from_month AND vp.day < (_to_month + INTERVAL '1 month')
           AND (NOT solvent_whole_day OR attestations_executed < min_attestations OR decideds < min_decideds)
+          AND (
+              CASE migration_filter
+                  WHEN 'ssv' THEN (val.migration_day IS NULL OR vp.day < val.migration_day)
+                  WHEN 'eth' THEN (val.migration_day IS NOT NULL AND vp.day >= val.migration_day)
+                  ELSE FALSE
+              END
+          )
     )
     SELECT
     	v.day,
