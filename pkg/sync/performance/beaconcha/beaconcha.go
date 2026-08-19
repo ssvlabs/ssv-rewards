@@ -30,8 +30,11 @@ const (
 	// again, and days further ahead than the sync window are not needed yet. Keeping
 	// the full history instead (1,100+ days since IMP start, across every synced
 	// validator) requires tens of GiB of heap at current mainnet scale.
-	// 45 days covers a monthly sync round in a single file parse per validator;
-	// longer (re)sync windows re-parse each validator's cache file once per 45 days.
+	// 45 days covers a monthly sync round in a single file parse per validator.
+	// Longer (re)sync windows re-parse each validator's cache file once per 45
+	// days, which does cost wall time: measured ~3x at a 120-day window and ~25x
+	// at a full ~1,120-day resync (--fresh --keep-cache), traded for keeping the
+	// heap bounded — retaining full history would OOM at current mainnet scale.
 	memCacheRetainDays = 45
 )
 
@@ -92,7 +95,17 @@ func (m *Client) ValidatorPerformance(
 			// Load the retention window into the memory cache AND check for the
 			// target dayKey in a single pass. Replacing the entry (rather than
 			// merging) also drops days that have already been processed.
-			byDay, d, found := retainWindow(cachedItem.Data, dayKey)
+			//
+			// Clamp the window to the last day settled at fetch time: days within
+			// 48h of the file's fetch time may still change upstream, so they must
+			// not be served from memory when a later sync day requests them —
+			// dropping them here forces the 48h freshness guard to re-evaluate
+			// (and refetch) deterministically.
+			windowEnd := dayKey.AddDate(0, 0, memCacheRetainDays)
+			if settled := cachedItem.Time.Add(-48 * time.Hour); settled.Before(windowEnd) {
+				windowEnd = settled
+			}
+			byDay, d, found := retainWindow(cachedItem.Data, dayKey, windowEnd)
 
 			m.cacheMu.Lock()
 			m.memCache[index] = byDay
@@ -142,8 +155,9 @@ func (m *Client) ValidatorPerformance(
 		logger.Error("failed to save cache", zap.Error(saveErr))
 	}
 
-	// Update in-memory cache with the retention window only.
-	byDay, d, found := retainWindow(resp.Data, dayKey)
+	// Update in-memory cache with the retention window only. No settled-time
+	// clamp here: a live response is current by definition.
+	byDay, d, found := retainWindow(resp.Data, dayKey, dayKey.AddDate(0, 0, memCacheRetainDays))
 
 	m.cacheMu.Lock()
 	m.memCache[index] = byDay
@@ -157,11 +171,10 @@ func (m *Client) ValidatorPerformance(
 	return nil, nil
 }
 
-// retainWindow filters daily stats down to [dayKey, dayKey+memCacheRetainDays)
-// keyed by day, and returns the entry for dayKey itself, with found reporting
-// whether that day was present.
-func retainWindow(data []dailyData, dayKey time.Time) (byDay map[time.Time]dailyData, day dailyData, found bool) {
-	windowEnd := dayKey.AddDate(0, 0, memCacheRetainDays)
+// retainWindow filters daily stats down to [dayKey, windowEnd) keyed by day,
+// and returns the entry for dayKey itself, with found reporting whether that
+// day was present.
+func retainWindow(data []dailyData, dayKey, windowEnd time.Time) (byDay map[time.Time]dailyData, day dailyData, found bool) {
 	byDay = make(map[time.Time]dailyData)
 	for _, d := range data {
 		k := d.DayStart.UTC().Truncate(24 * time.Hour)

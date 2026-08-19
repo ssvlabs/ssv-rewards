@@ -3,11 +3,106 @@ package beaconcha
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloxapp/ssv-rewards/pkg/beacon"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRetainWindow(t *testing.T) {
+	dayKey := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
+	at := func(offsetDays int) time.Time { return dayKey.AddDate(0, 0, offsetDays) }
+	daily := func(offsetDays, missed int) dailyData {
+		return dailyData{DayStart: at(offsetDays), MissedAttestations: missed}
+	}
+	fullWindow := dayKey.AddDate(0, 0, memCacheRetainDays)
+
+	for _, tc := range []struct {
+		name      string
+		data      []dailyData
+		windowEnd time.Time
+		wantDays  []time.Time
+		wantFound bool
+		wantDay   dailyData
+	}{
+		{
+			name:      "dayKey itself is retained and returned",
+			data:      []dailyData{daily(0, 1)},
+			windowEnd: fullWindow,
+			wantDays:  []time.Time{at(0)},
+			wantFound: true,
+			wantDay:   daily(0, 1),
+		},
+		{
+			name:      "last day inside the window (+44) is retained",
+			data:      []dailyData{daily(0, 1), daily(memCacheRetainDays-1, 2)},
+			windowEnd: fullWindow,
+			wantDays:  []time.Time{at(0), at(memCacheRetainDays - 1)},
+			wantFound: true,
+			wantDay:   daily(0, 1),
+		},
+		{
+			name:      "first day past the window (+45) is dropped",
+			data:      []dailyData{daily(0, 1), daily(memCacheRetainDays, 2)},
+			windowEnd: fullWindow,
+			wantDays:  []time.Time{at(0)},
+			wantFound: true,
+			wantDay:   daily(0, 1),
+		},
+		{
+			name:      "day before dayKey (-1) is dropped",
+			data:      []dailyData{daily(-1, 9), daily(0, 1)},
+			windowEnd: fullWindow,
+			wantDays:  []time.Time{at(0)},
+			wantFound: true,
+			wantDay:   daily(0, 1),
+		},
+		{
+			name:      "duplicate day: last entry wins",
+			data:      []dailyData{daily(0, 1), daily(0, 7)},
+			windowEnd: fullWindow,
+			wantDays:  []time.Time{at(0)},
+			wantFound: true,
+			wantDay:   daily(0, 7),
+		},
+		{
+			name:      "dayKey absent: found=false, later days still retained",
+			data:      []dailyData{daily(1, 2), daily(2, 3)},
+			windowEnd: fullWindow,
+			wantDays:  []time.Time{at(1), at(2)},
+			wantFound: false,
+		},
+		{
+			name:      "clamped windowEnd drops unsettled tail days",
+			data:      []dailyData{daily(0, 1), daily(1, 2), daily(2, 3)},
+			windowEnd: at(2), // e.g. cachedItem.Time - 48h
+			wantDays:  []time.Time{at(0), at(1)},
+			wantFound: true,
+			wantDay:   daily(0, 1),
+		},
+		{
+			name:      "empty data: nothing retained, not found",
+			data:      nil,
+			windowEnd: fullWindow,
+			wantDays:  nil,
+			wantFound: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			byDay, day, found := retainWindow(tc.data, dayKey, tc.windowEnd)
+
+			require.Equal(t, tc.wantFound, found)
+			if tc.wantFound {
+				require.Equal(t, tc.wantDay, day)
+			}
+			require.Len(t, byDay, len(tc.wantDays))
+			for _, k := range tc.wantDays {
+				require.Contains(t, byDay, k)
+			}
+		})
+	}
+}
 
 func TestDeriveActiveEpochs(t *testing.T) {
 	spec := beacon.Spec{

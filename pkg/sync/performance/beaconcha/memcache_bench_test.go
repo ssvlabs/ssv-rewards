@@ -2,6 +2,7 @@ package beaconcha
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"testing"
 	"time"
@@ -24,14 +25,28 @@ import (
 //
 //	go test -bench MemCache -benchtime 1x -run xxx ./pkg/sync/performance/beaconcha/
 func BenchmarkMemCacheSyncPattern(b *testing.B) {
+	// 31 days: one monthly round, single file parse per validator.
+	// 90 days: exceeds memCacheRetainDays, so each cache file is re-parsed
+	// once per 45 days — measures the wall-time cost of the bounded cache on
+	// long (re)sync windows.
+	for _, syncDays := range []int{31, 90} {
+		b.Run(fmt.Sprintf("syncDays=%d", syncDays), func(b *testing.B) {
+			benchMemCacheSyncPattern(b, syncDays)
+		})
+	}
+}
+
+func benchMemCacheSyncPattern(b *testing.B, syncDays int) {
 	const (
 		numValidators = 2000
 		historyDays   = 1120 // ~2023-07-01 .. now
-		syncDays      = 31   // one monthly round
 	)
 
 	histStart := time.Date(2023, 7, 1, 0, 0, 0, 0, time.UTC)
-	syncFrom := histStart.AddDate(0, 0, historyDays-syncDays-2)
+	// Anchor mid-history so the full memCacheRetainDays window is available
+	// past every synced day; anchoring near the end of history truncates the
+	// retained window and understates steady-state memory.
+	syncFrom := histStart.AddDate(0, 0, 500)
 
 	dir := b.TempDir()
 	seed, err := New("http://127.0.0.1:9", "", 1e9, dir) // black-holed endpoint; any fetch would fail loudly
