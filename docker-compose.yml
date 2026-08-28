@@ -13,6 +13,8 @@ services:
       - ./pgdata:/var/lib/postgresql/data
     ports:
       - "5435:5432"
+    networks:
+      - local_bridge_mtu
 
   sync:
     env_file:
@@ -31,6 +33,8 @@ services:
     volumes:
       - ./:/app
       - ./data:/app/data
+    networks:
+      - local_bridge_mtu
 
   calc:
     env_file:
@@ -41,3 +45,11 @@ services:
       POSTGRES: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-1234}@postgres/${POSTGRES_DB:-ssv-rewards}?sslmode=disable
     volumes:
       - ./:/app
+    networks:
+      - local_bridge_mtu
+
+networks:
+  local_bridge_mtu:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1420
