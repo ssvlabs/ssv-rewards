@@ -223,6 +223,7 @@ func (c *SyncCmd) Run(
 			spec,
 			eventParser,
 			el,
+			common.HexToAddress(network.RegistryContractAddr),
 			db,
 			fromBlock,
 			toBlock,

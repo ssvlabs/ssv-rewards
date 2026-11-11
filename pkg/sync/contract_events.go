@@ -12,6 +12,7 @@ import (
 	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/bloxapp/ssv/eth/executionclient"
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/schollz/progressbar/v3"
 	"github.com/volatiletech/sqlboiler/v4/boil"
@@ -29,6 +30,7 @@ func SyncContractEvents(
 	spec beacon.Spec,
 	eventParser *eventparser.EventParser,
 	el *executionclient.ExecutionClient,
+	contractAddress common.Address,
 	db *sql.DB,
 	fromBlock, toBlock uint64,
 ) error {
@@ -47,24 +49,22 @@ func SyncContractEvents(
 	bar := progressbar.New(int(toBlock-fromBlock) + 1)
 	bar.Describe("Fetching events")
 	defer bar.Clear()
-	logs, errs := el.FetchLogs(ctx, fromBlock, toBlock)
-FetchEvents:
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case blockLogs, ok := <-logs:
-			if !ok {
-				break FetchEvents
-			}
+	var insertErr error
+	err := fetchContractLogs(ctx, logger, el.RPC(), contractAddress, fromBlock, toBlock, maxLogBatchSize,
+		func(blockLogs executionclient.BlockLogs) error {
 			if err := insertContractEvents(ctx, logger, spec, db, eventParser, el, blockLogs.BlockNumber, blockLogs.Logs); err != nil {
-				return fmt.Errorf("failed to insert contract events for block %d: %w", blockLogs.BlockNumber, err)
+				insertErr = fmt.Errorf("failed to insert contract events for block %d: %w", blockLogs.BlockNumber, err)
+				return insertErr
 			}
 			totalEvents += len(blockLogs.Logs)
 			bar.Set(int(blockLogs.BlockNumber-fromBlock) + 1)
-		}
+			return nil
+		},
+	)
+	if insertErr != nil {
+		return insertErr
 	}
-	if err := <-errs; err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to fetch logs: %w", err)
 	}
 	bar.Clear()
