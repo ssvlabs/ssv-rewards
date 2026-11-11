@@ -23,6 +23,19 @@ const (
 	// First day of the Incentivized Mainnet Program (IMP), corresponds to 2023-07-01
 	// Used as the start_day parameter when querying the Beaconcha.in API for validator stats.
 	startDay = "941"
+
+	// memCacheRetainDays bounds how many days of stats are retained in memory per
+	// validator, starting at the most recently requested day. Sync processes days in
+	// strictly increasing order, so days before the requested one can never be read
+	// again, and days further ahead than the sync window are not needed yet. Keeping
+	// the full history instead (1,100+ days since IMP start, across every synced
+	// validator) requires tens of GiB of heap at current mainnet scale.
+	// 45 days covers a monthly sync round in a single file parse per validator.
+	// Longer (re)sync windows re-parse each validator's cache file once per 45
+	// days, which does cost wall time: measured ~3x at a 120-day window and ~25x
+	// at a full ~1,120-day resync (--fresh --keep-cache), traded for keeping the
+	// heap bounded — retaining full history would OOM at current mainnet scale.
+	memCacheRetainDays = 45
 )
 
 type Client struct {
@@ -79,28 +92,29 @@ func (m *Client) ValidatorPerformance(
 	if err == nil {
 		// Use cache only if it was fetched *after* the requested day + 48h
 		if cachedItem.Time.After(dayKey.Add(48 * time.Hour)) {
-			// Load into memory cache AND check for target dayKey in a single pass
-			var found *dailyData
+			// Load the retention window into the memory cache AND check for the
+			// target dayKey in a single pass. Replacing the entry (rather than
+			// merging) also drops days that have already been processed.
+			//
+			// Clamp the window to the last day settled at fetch time: days within
+			// 48h of the file's fetch time may still change upstream, so they must
+			// not be served from memory when a later sync day requests them —
+			// dropping them here forces the 48h freshness guard to re-evaluate
+			// (and refetch) deterministically.
+			windowEnd := dayKey.AddDate(0, 0, memCacheRetainDays)
+			if settled := cachedItem.Time.Add(-48 * time.Hour); settled.Before(windowEnd) {
+				windowEnd = settled
+			}
+			byDay, d, found := retainWindow(cachedItem.Data, dayKey, windowEnd)
 
 			m.cacheMu.Lock()
-			if _, exists := m.memCache[index]; !exists {
-				m.memCache[index] = make(map[time.Time]dailyData)
-			}
-			for _, d := range cachedItem.Data {
-				k := d.DayStart.UTC().Truncate(24 * time.Hour)
-				m.memCache[index][k] = d
-				if k.Equal(dayKey) {
-					dCopy := d
-					found = &dCopy
-				}
-			}
+			m.memCache[index] = byDay
 			m.cacheMu.Unlock()
 
-			if found != nil {
-				return convertToPerformance(spec, *found, fromEpoch, toEpoch, activationEpoch, exitEpoch), nil
-			} else {
-				return nil, nil
+			if found {
+				return convertToPerformance(spec, d, fromEpoch, toEpoch, activationEpoch, exitEpoch), nil
 			}
+			return nil, nil
 		} else {
 			logger.Info("BEACONCHA cache is stale", zap.String("index", fmt.Sprintf("%d", index)))
 		}
@@ -141,24 +155,39 @@ func (m *Client) ValidatorPerformance(
 		logger.Error("failed to save cache", zap.Error(saveErr))
 	}
 
-	// Update in-memory cache
+	// Update in-memory cache with the retention window only. No settled-time
+	// clamp here: a live response is current by definition.
+	byDay, d, found := retainWindow(resp.Data, dayKey, dayKey.AddDate(0, 0, memCacheRetainDays))
+
 	m.cacheMu.Lock()
-	if _, exists := m.memCache[index]; !exists {
-		m.memCache[index] = make(map[time.Time]dailyData)
-	}
-	for _, d := range resp.Data {
-		k := d.DayStart.UTC().Truncate(24 * time.Hour)
-		m.memCache[index][k] = d
-	}
-	d, ok := m.memCache[index][dayKey]
+	m.memCache[index] = byDay
 	m.cacheMu.Unlock()
 
-	if ok {
+	if found {
 		return convertToPerformance(spec, d, fromEpoch, toEpoch, activationEpoch, exitEpoch), nil
 	}
 
 	// Requested day not found even after fetching fresh data
 	return nil, nil
+}
+
+// retainWindow filters daily stats down to [dayKey, windowEnd) keyed by day,
+// and returns the entry for dayKey itself, with found reporting whether that
+// day was present.
+func retainWindow(data []dailyData, dayKey, windowEnd time.Time) (byDay map[time.Time]dailyData, day dailyData, found bool) {
+	byDay = make(map[time.Time]dailyData)
+	for _, d := range data {
+		k := d.DayStart.UTC().Truncate(24 * time.Hour)
+		if k.Before(dayKey) || !k.Before(windowEnd) {
+			continue
+		}
+		byDay[k] = d
+		if k.Equal(dayKey) {
+			day = d
+			found = true
+		}
+	}
+	return byDay, day, found
 }
 
 func (m *Client) cacheFilePath(index phase0.ValidatorIndex) string {
