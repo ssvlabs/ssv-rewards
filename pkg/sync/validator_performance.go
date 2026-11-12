@@ -142,11 +142,6 @@ func SyncValidatorPerformance(
 		validatorsByPubKey[pk] = validator
 	}
 
-	var (
-		inMemorySSVCache   = make(map[string]*ssvCacheItem)
-		inMemorySSVCacheMu sync.Mutex
-	)
-
 	for day := fromDay; !day.After(toDay); day = day.AddDate(0, 0, 1) {
 		bar.Describe(day.Format("2006-01-02"))
 		totalDays++
@@ -214,78 +209,13 @@ func SyncValidatorPerformance(
 			continue
 		}
 
-		var decideds map[string]int
-		dayKey := day.Format("2006-01-02")
-
+		// Each day is visited exactly once per run, so decideds are not kept in
+		// memory across days: retaining them grew the heap by ~150 B per SSV
+		// validator per day and OOM-killed full resyncs (--fresh).
 		dutyCountsStart := time.Now()
-
-		// Check memory cache first (no time check needed)
-		inMemorySSVCacheMu.Lock()
-		memItem, found := inMemorySSVCache[dayKey]
-		inMemorySSVCacheMu.Unlock()
-
-		if found {
-			logger.Info("Using SSV data from memory cache", zap.String("day", dayKey))
-			decideds = make(map[string]int, len(memItem.Validators))
-			for k, v := range memItem.Validators {
-				decideds[k] = v
-			}
-		} else {
-			// Check file cache
-			cachedItem, err := loadSSVCache(cacheDir, dayKey)
-			if err == nil && cachedItem.Time.After(day.Add(48*time.Hour)) {
-				logger.Info("Using SSV data from file cache", zap.String("day", dayKey))
-				decideds = make(map[string]int, len(cachedItem.Validators))
-
-				inMemorySSVCacheMu.Lock()
-				inMemorySSVCache[dayKey] = cachedItem // Populate memory cache
-				inMemorySSVCacheMu.Unlock()
-
-				for k, v := range cachedItem.Validators {
-					decideds[k] = v
-				}
-			} else {
-				// Fetch fresh
-				logger.Info("Fetching fresh SSV data", zap.String("day", dayKey))
-
-				var resp struct {
-					Error      string
-					Validators map[string]struct{ Duties int }
-				}
-				url := ssvAPIEndpoint
-				if url[len(url)-1] != '/' {
-					url += "/"
-				}
-				err := requests.URL(url).
-					Client(httpretry.Client).
-					Pathf("%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
-					ToJSON(&resp).
-					Fetch(ctx)
-				if err != nil {
-					return fmt.Errorf("failed to get validator duties: %w", err)
-				}
-				if resp.Error != "" {
-					return fmt.Errorf("ssv api returned error: %s", resp.Error)
-				}
-
-				decideds = make(map[string]int, len(resp.Validators))
-				for pubKey, data := range resp.Validators {
-					decideds[pubKey] = data.Duties
-				}
-
-				newItem := &ssvCacheItem{
-					Time:       time.Now(),
-					Validators: decideds,
-				}
-
-				inMemorySSVCacheMu.Lock()
-				inMemorySSVCache[dayKey] = newItem
-				inMemorySSVCacheMu.Unlock()
-
-				if err := saveSSVCache(cacheDir, dayKey, *newItem); err != nil {
-					logger.Warn("Failed to save SSV cache", zap.Error(err))
-				}
-			}
+		decideds, err := fetchDecideds(ctx, logger, spec, ssvAPIEndpoint, cacheDir, day, fromEpoch, toEpoch)
+		if err != nil {
+			return err
 		}
 		dutyCountsDuration := time.Since(dutyCountsStart)
 
@@ -451,6 +381,58 @@ func SyncValidatorPerformance(
 		zap.Int("fetched_days", fetchedDays),
 	)
 	return nil
+}
+
+// fetchDecideds returns the SSV duty counts ("decideds") per validator public
+// key for the given day, served from the on-disk cache when it was fetched more
+// than 48h after the day, and from the SSV API otherwise (writing the response
+// through to the on-disk cache). It holds no state across calls.
+func fetchDecideds(
+	ctx context.Context,
+	logger *zap.Logger,
+	spec beacon.Spec,
+	ssvAPIEndpoint string,
+	cacheDir string,
+	day time.Time,
+	fromEpoch, toEpoch phase0.Epoch,
+) (map[string]int, error) {
+	dayKey := day.Format("2006-01-02")
+
+	cachedItem, err := loadSSVCache(cacheDir, dayKey)
+	if err == nil && cachedItem.Time.After(day.Add(48*time.Hour)) {
+		logger.Info("Using SSV data from file cache", zap.String("day", dayKey))
+		return cachedItem.Validators, nil
+	}
+
+	logger.Info("Fetching fresh SSV data", zap.String("day", dayKey))
+	var resp struct {
+		Error      string
+		Validators map[string]struct{ Duties int }
+	}
+	url := ssvAPIEndpoint
+	if url[len(url)-1] != '/' {
+		url += "/"
+	}
+	err = requests.URL(url).
+		Client(httpretry.Client).
+		Pathf("%s/validators/duty_counts/%d/%d", spec.Network, fromEpoch, toEpoch).
+		ToJSON(&resp).
+		Fetch(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get validator duties: %w", err)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("ssv api returned error: %s", resp.Error)
+	}
+
+	decideds := make(map[string]int, len(resp.Validators))
+	for pubKey, data := range resp.Validators {
+		decideds[pubKey] = data.Duties
+	}
+	if err := saveSSVCache(cacheDir, dayKey, ssvCacheItem{Time: time.Now(), Validators: decideds}); err != nil {
+		logger.Warn("Failed to save SSV cache", zap.Error(err))
+	}
+	return decideds, nil
 }
 
 func BulkInsertValidatorPerformances(ctx context.Context, tx *sqlx.Tx, performances []*models.ValidatorPerformance) error {
